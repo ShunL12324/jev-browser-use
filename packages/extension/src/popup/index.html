@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>browser-use</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <header>
+      <strong>browser-use</strong>
+      <span id="status-dot" class="dot dot-disabled"></span>
+    </header>
+    <div id="status-line">connecting…</div>
+    <div id="url-line"></div>
+    <section>
+      <h2>Recent activity</h2>
+      <ol id="activity"></ol>
+    </section>
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

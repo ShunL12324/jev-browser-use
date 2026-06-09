@@ -1,0 +1,107 @@
+# browser-use
+
+MCP-driven browser automation. Pair the Chrome extension with the `browser-use-mcp` bridge to drive Chrome from Claude Code (or any MCP client) with no Electron host.
+
+```
+Claude Code  <--stdio MCP-->  browser-use-mcp (Node)  <--ws://127.0.0.1:17329-->  Chrome Extension
+```
+
+The extension does the DOM work; the bridge translates MCP tool calls into a small WebSocket protocol. 18 tools, all `browser_*`-prefixed: snapshot, view, navigate, click, type, press_key, select, hover, upload_file, wait_for, scroll, tabs, network_log, eval_js, inspect, get_cookie, request, batch.
+
+## Requirements
+
+- **Chrome 124+** (for `chrome.dom.openOrClosedShadowRoot` — needed to pierce closed shadow DOM, e.g. Salesforce Lightning).
+- Node 20+ to run the bridge.
+
+## Setup
+
+### 1. Build
+
+```sh
+cd /Users/shun/projects/browser-use
+npm install
+npm run build
+```
+
+This produces:
+- `packages/extension/dist/` — the unpacked extension
+- `packages/bridge/dist/` — the Node MCP server
+
+### 2. Load the extension
+
+1. Open `chrome://extensions`
+2. Toggle **Developer mode** (top right)
+3. Click **Load unpacked** and select `packages/extension/dist/`
+4. Pin the extension. The badge shows a red dot until the bridge connects.
+
+### 3. Wire it to Claude Code
+
+Add to your MCP config (`~/.claude.json` or run `claude mcp add`):
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "node",
+      "args": ["/Users/shun/projects/browser-use/packages/bridge/dist/index.js"]
+    }
+  }
+}
+```
+
+Restart Claude Code. `/mcp` should list `browser-use` as connected. The extension badge flips to green within ~5s.
+
+### Trying it
+
+> Navigate to example.com and snapshot the page.
+
+Expect two tool calls — `browser_navigate` then `browser_snapshot` — with a list of interactable refs returned.
+
+## How it works
+
+- Bridge is the **WebSocket server**, extension is the **client**. The bridge binds `127.0.0.1:17329/mcp` only — unreachable from the network.
+- Each MCP tool call → bridge sends a `command` frame → extension dispatches the matching tool → sends a `result` frame → bridge returns to MCP.
+- The extension's universal automation surface (snapshot/refs, content-script tools, network capture) was ported from the [jobshark](https://github.com/ShunL12324/jobshark) project. The MCP bridge replaces what was previously an Electron host.
+
+### Tool error model
+
+Errors come back as MCP `isError: true` with a JSON body:
+
+```json
+{
+  "code": "STALE_REF",
+  "short_term": true,
+  "message": "ref e42 no longer in DOM"
+}
+```
+
+- `code` — stable identifier (STALE_REF, TIMEOUT, NO_ACTIVE_TAB, BRIDGE_DISCONNECT, EXTENSION_NOT_CONNECTED, …).
+- `short_term` — `true` if the LLM should retry; `false` if it's a permanent fact to remember.
+
+## Known limits (v0.1)
+
+- **One Claude Code session at a time.** The bridge owns port 17329; a second invocation gets `EADDRINUSE` and exits. Multi-session support (a persistent broker daemon) is a v0.2 feature.
+- **No image capture.** The `view` tool returns reading-order markdown only. Image capture is disabled in `packages/extension/src/lib/tools/view.ts` (one-line revert).
+- **No Chrome Web Store distribution.** Manual `Load unpacked` only.
+- **Closed shadow DOM** requires Chrome 124+. Older Chromes silently fail to pierce, so site-specific automation (Salesforce, etc.) will be flaky.
+
+## Debugging
+
+- **Bridge stderr** is visible in Claude Code's MCP server pane.
+- **Extension service worker** logs: `chrome://extensions` → click the extension's **service worker** link → DevTools console.
+- **Popup**: click the toolbar icon — shows current bridge state, URL, and the last 5 tool calls.
+
+## Repo layout
+
+```
+packages/
+  extension/    # Chrome MV3 extension (Vite + @crxjs/vite-plugin)
+  bridge/       # Node MCP server, talks stdio ↔ WebSocket
+```
+
+Scripts:
+- `npm run build` — both packages
+- `npm run build:extension`
+- `npm run build:bridge`
+- `npm --workspace browser-use-extension run dev` — Vite HMR
+- `npm --workspace browser-use-extension run pack` — zip the extension

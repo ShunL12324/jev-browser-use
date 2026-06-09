@@ -1,0 +1,20 @@
+{
+  "name": "browser-use-extension",
+  "version": "0.1.0",
+  "description": "Chrome MV3 extension that exposes browser-automation tools to the browser-use MCP bridge.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "pack": "npm run build && rm -f browser-use-extension.zip && cd dist && zip -r ../browser-use-extension.zip . -x '.*' '*.DS_Store' '*.map'"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.30",
+    "@types/chrome": "^0.0.290",
+    "@types/node": "^22.19.19",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}

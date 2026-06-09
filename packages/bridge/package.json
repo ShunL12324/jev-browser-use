@@ -1,0 +1,25 @@
+{
+  "name": "browser-use-mcp",
+  "version": "0.1.0",
+  "description": "MCP bridge for the browser-use Chrome extension. Spawned by Claude Code (or any MCP client) over stdio; relays tool calls to the extension over a local WebSocket.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "browser-use-mcp": "./dist/index.js"
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p . && chmod +x dist/index.js",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  }
+}

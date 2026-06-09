@@ -1,0 +1,12 @@
+{
+  "name": "browser-use",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Chrome extension + MCP bridge for browser automation",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:extension": "npm run build --workspace browser-use-extension",
+    "build:bridge": "npm run build --workspace browser-use-mcp"
+  }
+}
