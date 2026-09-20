@@ -20,3 +20,30 @@ export function safeApiDiagnostic(error, { stage, httpStatus, signal, callerSign
     causeCode: CAUSE_CODES.has(error?.cause?.code) ? error.cause.code : 'other'
   }
 }
+
+const QUESTION_IDS = new Set(['action', 'click_target', 'goal_met', 'blocked', 'type_target', 'type_value'])
+const VALIDATION_REASONS = new Set(['type', 'missing', 'choice', 'prob_keys', 'prob_range', 'sum', 'not_argmax'])
+const finite = value => Number.isFinite(value) ? value : null
+export function safeValidationDiagnostic(questionId, reason, question, answer) {
+  const keys = question?.criteria ? Object.keys(question.criteria) : null
+  const probabilities = answer?.probabilities
+  const actualKeys = probabilities ? Object.keys(probabilities) : null
+  const values = probabilities ? Object.values(probabilities) : []
+  const expectedValues = keys?.map(key => probabilities?.[key])
+  return {
+    questionId: QUESTION_IDS.has(questionId) ? questionId : 'other',
+    reason: VALIDATION_REASONS.has(reason) ? reason : 'other',
+    expectedKeyCount: keys?.length ?? null,
+    actualKeyCount: actualKeys?.length ?? null,
+    selectedInCriteria: keys ? Object.hasOwn(question.criteria, answer?.choice) : null,
+    keySetMatches: keys && actualKeys ? keys.length === actualKeys.length && keys.every(key => Object.hasOwn(probabilities, key)) : null,
+    sum: expectedValues?.every(Number.isFinite) ? finite(expectedValues.reduce((total, value) => total + value, 0)) : null,
+    selectedProbability: finite(question?.type === 'noul' ? answer?.noul : probabilities?.[answer?.choice]),
+    maxProbability: values.length && values.every(Number.isFinite) ? finite(values.reduce((max, value) => Math.max(max, value), -Infinity)) : null
+  }
+}
+export function safeApiUsage(usage) {
+  if (!Number.isFinite(usage?.input_tokens) || usage.input_tokens < 0) return undefined
+  return { input_tokens: usage.input_tokens,
+    ...(Number.isFinite(usage.output_tokens) && usage.output_tokens >= 0 ? { output_tokens: usage.output_tokens } : {}) }
+}

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { run, validateTask, askJev, RunError } from './core.mjs'
 import { requireBudget, reserveRequest, DEFAULT_LEDGER } from './budget.mjs'
+import { safeApiUsage } from './diagnostics.mjs'
 import { reshapeParams } from '../schemas.js'
 
 export function createGate() {
@@ -85,13 +86,15 @@ export async function executeRun(input, { host, signal, ask = askJev, ledgerPath
         record({ event: 'api_finished', sequence, model: response.model, usage: response.usage, answers: response.answers })
         return response
       } catch (error) {
-        record({ event: 'api_error', sequence, code: error.code ?? error.name, diagnostic: error.diagnostic })
+        const usage = safeApiUsage(error.usage)
+        if (usage) { inputTokens += usage.input_tokens; knownUsageResponses++ }
+        record({ event: 'api_error', sequence, code: error.code ?? error.name, diagnostic: error.diagnostic, validation: error.validation, usage })
         throw error
       } finally { timingMs.api += performance.now() - clock }
     }
     result = await run(task, { call, ask: countedAsk, signal, emit: record })
   } catch (error) {
-    result = { status: 'error', code: error.code ?? error.name, details: error.details, diagnostic: error.diagnostic, message: error instanceof RunError ? error.message : 'Run stopped; inspect the local trace for the failing stage.' }
+    result = { status: 'error', code: error.code ?? error.name, details: error.details, diagnostic: error.diagnostic, validation: error.validation, usage: safeApiUsage(error.usage), message: error instanceof RunError ? error.message : 'Run stopped; inspect the local trace for the failing stage.' }
   }
   const terminal = { ...result, runId, mode: input.mode ?? 'J0', sourceSha, tabId: result.tabId ?? tabId ?? null, steps: result.steps ?? steps, requests, inputTokens, unknownUsageRequests: requests - knownUsageResponses, startedAt, finishedAt: new Date().toISOString(), elapsedMs: performance.now() - start, timingMs, tracePath: tracePath ?? null, verification: 'not_independently_verified', takeoverAllowed: !uncertainInFlight, handoff: result.status !== 'done' && !uncertainInFlight }
   record({ event: 'terminal', ...terminal })

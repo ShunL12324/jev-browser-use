@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { reserveRequest, DEFAULT_LEDGER } from './budget.mjs'
-import { safeApiDiagnostic } from './diagnostics.mjs'
+import { safeApiDiagnostic, safeValidationDiagnostic, safeApiUsage } from './diagnostics.mjs'
 
 const own = (object, key) => Object.hasOwn(object, key)
 const choice = (instructions, criteria) => ({ type: 'choice', instructions, criteria })
@@ -85,18 +85,28 @@ export function prepare(task, view, snapshot, history = []) {
 }
 
 export function validateAnswers(questions, answers) {
-  if (!answers || typeof answers !== 'object') fail('BAD_ANSWER', 'Missing answers.')
+  const invalid = (questionId, reason, question, answer) => {
+    const error = new RunError('BAD_ANSWER', 'Invalid Jev answer; see validation diagnostic.')
+    error.validation = safeValidationDiagnostic(questionId, reason, question, answer)
+    throw error
+  }
+  if (!answers || typeof answers !== 'object') invalid(undefined, 'missing')
   const probability = n => Number.isFinite(n) && n >= 0 && n <= 1
   for (const [key, q] of Object.entries(questions)) {
     const a = answers[key]
-    if (!a || a.type !== q.type) fail('BAD_ANSWER', `Missing or wrong answer type: ${key}`)
+    if (!a) invalid(key, 'missing', q, a)
+    if (a.type !== q.type) invalid(key, 'type', q, a)
     if (q.type === 'noul') {
-      if (!probability(a.noul)) fail('BAD_ANSWER', `Invalid probability: ${key}`)
+      if (!probability(a.noul)) invalid(key, 'prob_range', q, a)
     } else {
       const keys = Object.keys(q.criteria)
-      if (!own(q.criteria, a.choice) || !a.probabilities || Object.keys(a.probabilities).length !== keys.length || !keys.every(k => probability(a.probabilities[k]))) fail('BAD_ANSWER', `Invalid choice distribution: ${key}`)
+      if (!own(q.criteria, a.choice)) invalid(key, 'choice', q, a)
+      if (!a.probabilities) invalid(key, 'missing', q, a)
+      if (Object.keys(a.probabilities).length !== keys.length) invalid(key, 'prob_keys', q, a)
+      if (!keys.every(k => probability(a.probabilities[k]))) invalid(key, keys.some(k => !own(a.probabilities, k)) ? 'prob_keys' : 'prob_range', q, a)
       const sum = keys.reduce((n, k) => n + a.probabilities[k], 0)
-      if (Math.abs(sum - 1) > 0.05 || a.probabilities[a.choice] < Math.max(...Object.values(a.probabilities))) fail('BAD_ANSWER', `Inconsistent choice distribution: ${key}`)
+      if (Math.abs(sum - 1) > 0.05) invalid(key, 'sum', q, a)
+      if (a.probabilities[a.choice] < Math.max(...Object.values(a.probabilities))) invalid(key, 'not_argmax', q, a)
     }
   }
 }
@@ -143,7 +153,7 @@ export async function askJev(payload, { signal, apiKey = process.env.TYPESAFE_AP
   const sequence = reserveRequest(ledgerPath, requestMetadata)
   onRequest(sequence)
   const requestSignal = AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(20000)])
-  let stage = 'fetch', httpStatus
+  let stage = 'fetch', httpStatus, usage
   try {
     const response = await fetch(url, { method: 'POST', signal: requestSignal, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, ...payload }) })
     httpStatus = response.status
@@ -151,6 +161,7 @@ export async function askJev(payload, { signal, apiKey = process.env.TYPESAFE_AP
     if (!response.ok) fail('API_ERROR', `Jev HTTP ${response.status}; request was not retried.`)
     stage = 'response_json'
     const result = await response.json()
+    usage = safeApiUsage(result?.usage)
     stage = 'validate'
     validateAnswers(payload.questions, result.answers)
     return result
@@ -160,6 +171,8 @@ export async function askJev(payload, { signal, apiKey = process.env.TYPESAFE_AP
       ? error.code : ['TypeError', 'SyntaxError', 'AbortError', 'TimeoutError'].includes(diagnostic.errorName) ? diagnostic.errorName : 'API_FAILURE'
     const failure = new RunError(code, 'Jev request failed; see the safe diagnostic fields. The request was not retried.')
     failure.diagnostic = diagnostic
+    if (error instanceof RunError && error.code === 'BAD_ANSWER') failure.validation = error.validation
+    if (usage) failure.usage = usage
     throw failure
   }
 }

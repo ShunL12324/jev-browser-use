@@ -78,3 +78,13 @@ API 失败时原生 MCP 的 `diagnostic` 与 JSONL `api_error/terminal` 会记�
 不记录原始 error.message、stack、cause对象、URL、headers或响应body；不改变20秒API超时、请求协议、模型、题目、候选或重试策略。一次失败仍保留发送前占号和 unknownUsageRequests，不能把未知用量当零费用。`fetch + UND_ERR_CONNECT_TIMEOUT` 只能说明连接阶段超时，不能单凭它断定DNS、IPv6或服务端故障；旧日志缺少cause的数据无法事后补推根因。
 
 诊断补丁与J1表示变更分开提交。下一次真实请求由master单独批准，从诊断储备计数；不得通过自动重复POST、固定IP、改全局hosts或更换模型来绕过未定位的问题。
+
+## 无效答案诊断与已知用量
+
+依据本地2026-09-20官方缓存：[Choice](https://docs.typesafe.ai/primitives/choice.md)、[HTTP API](https://docs.typesafe.ai/api.md)说明每个候选都返回概率、choice为最高概率项；[Python响应类型](https://docs.typesafe.ai/sdk/python/api/types/responses.md)说明概率和约为1，但未规定数值容差。现有±0.05是本应用阈值，不是官方保证。本补丁不放宽键集、范围、概率和或argmax检查；并列最高值仍按原规则通过。
+
+`BAD_ANSWER` 新增 `validation`，只包含固定题目ID（六个runner题目，其他为other）、固定reason（type/missing/choice/prob_keys/prob_range/sum/not_argmax）、键数、键集/选项归属布尔和有限数值sum/selectedProbability/maxProbability。缺失或非有限统计为null；不输出未知类型、选项名、概率键名或原始响应正文。错误依然阻止执行，仍先校验所有题再判断expectedText完成，不因页面已保存就忽略无效题目。
+
+JSON成功解析后先提取受限数值usage。即使答案无效，合法非负input_tokens仍计入终态累计inputTokens，这次请求不再算unknownUsageRequests；可用的output_tokens保留在该次api_error/terminal的usage中。缺失、负数或非数值input_tokens仍算未知，额外usage字段不透传。历史未保存的用量不能回填。
+
+若master批准原观察重放，应从指定旧trace的api_started.payload提取完整state/questions/history，经同一中央askJev与ledger只请求一次，核对state/questions hash。它是纯API诊断，不是新的原生MCP浏览器闭环，不覆盖旧失败，也不重置已完成页面或重跑动作。执行诊断不需要新增runner入口。
