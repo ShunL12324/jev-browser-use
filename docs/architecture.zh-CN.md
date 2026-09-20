@@ -13,7 +13,7 @@
 
 拆分关系由 browser-use README 明确说明，且源码比对支持：DOM、refs、跨 frame 路由、绝大多数工具实现直接复用；独立版替换了宿主、扩展连接配置及界面。两个仓库没有在此通过 Git 共同祖先来证明完整迁移历史，不能从现有快照还原未提交的设计过程。
 
-本次新增架构文档、验证脚本和环境无关的启动说明，并修正 MCP 标签页目标参数丢失、输入工具 schema 与实际执行要求不一致的问题。未引入 Jev 运行时。
+本次新增架构文档、验证脚本和环境无关的启动说明，并修正 MCP 标签页目标参数丢失、输入工具 schema 与实际执行要求不一致的问题。后续已新增独立 Jev runner 实验，见 [运行说明与验证](jev-runner.zh-CN.md)。
 
 ## 原来的 JobShark / Quarry
 
@@ -109,7 +109,7 @@ flowchart LR
 - 缺省工具作用于当前活动 tab。未来自动循环应固定 tabId，避免用户切换标签后误操作别的页面。
 - WS 默认等待扩展 15 秒，命令超时 120 秒；扩展每 20 秒发心跳，45 秒未收到 pong 则重连。
 - 仅绑定 loopback；当前未做连接认证或 Origin 校验。若未来改为跨机器部署，需要明确认证与连接边界。
-- bridge 的 `close()` 等待 WS 关闭，而未主动关闭已连接扩展；stdio 结束时的退出路径仍值得专门修复和测试。本次测试先关闭模拟扩展，不声称覆盖此问题。
+- 后续 Jev 实验修复 bridge 退出：主动关闭已连接扩展并拒绝等待调用，释放端口；新增连接保持期间退出的回归测试。
 - 本次修正：tabs 的路由 tabId 原先被剥离，导致 switch/close 收不到 params.tabId；现两处均保留。
 - 本次修正：type 原 schema 允许不传 ref，但执行层明确要求 ref；现 schema 要求非空 ref，text 只表示输入内容。
 - 本次修正：snapshot 描述原称默认 50，执行代码实际默认不截断；已校正描述。
@@ -133,13 +133,13 @@ Chrome 开发者模式加载 `packages/extension/dist/`。用支持 stdio MCP �
 
 真实 Chrome 验收步骤：加载扩展 → 连接 MCP → browser_tabs list 获取 tabId → 在专用测试标签页 navigate → view/snapshot → 按 ref 点击／填写 → tabs new/switch/close → 重载扩展检查重连。本次没有安装或操作用户日常浏览器扩展，也没有写入全局 MCP 配置。
 
-## Jev 接在哪里（设计建议，尚未实现）
+## Jev 接在哪里（初步设计与已实现实验）
 
-以下是初步实验方向，尚未定为重构方案。完整阅读官方 109 页后，补充了 [接口语义、Function Calling、并行参数选择与限制](typesafe/reading.zh-CN.md)。候选不必枚举完整动作组合，独立参数问题可以预问后按分支消费；state 也不要求统一的庞大页面 schema。
+以下是初步实验方向，尚未定为完整重构方案。当前已有最小 runner，实际范围与验证结果见 [Jev 实验](jev-runner.zh-CN.md)。完整阅读官方 109 页后，补充了 [接口语义、Function Calling、并行参数选择与限制](typesafe/reading.zh-CN.md)。候选不必枚举完整动作组合，独立参数问题可以预问后按分支消费；state 也不要求统一的庞大页面 schema。
 
 依据 [TypeSafe 官方文档](https://docs.typesafe.ai/introduction)，Jev 根据 state 回答预先定义的 Choice / Score / Noul 问题，返回结构化决策；自由文本生成需要另一个来源。
 
-建议新增独立 Node runner，作为现有 MCP 的客户端：
+已按独立 Node runner 作为现有 MCP 客户端的方式完成第一轮实验：
 
 ```mermaid
 flowchart TD

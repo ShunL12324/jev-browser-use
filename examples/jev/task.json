@@ -1,0 +1,8 @@
+{
+  "goal": "Set the display name to River, then save it. Finish only after the page confirms that River was saved.",
+  "startUrl": "http://localhost:17330/",
+  "values": { "display_name": "River" },
+  "expectedText": "Saved display name: River",
+  "maxSteps": 8,
+  "timeoutMs": 120000
+}

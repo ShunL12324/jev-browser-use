@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Browser-use playground</title>
+<style>
+body{font:18px system-ui,sans-serif;background:#f5f6fa;color:#182230;max-width:660px;margin:12vh auto;padding:24px}main{background:white;border:1px solid #ddd;border-radius:16px;padding:32px}label,input,button{display:block}input,button{font:inherit;padding:12px;margin:12px 0;border:1px solid #bbc3cf;border-radius:8px}button{background:#254ad4;color:white;cursor:pointer}#status{min-height:28px;color:#166534}
+</style>
+<main><h1>Profile settings</h1><p>This local playground changes only the text on this page.</p>
+<form><label for="name">Display name</label><input id="name" name="display_name" type="text" autocomplete="off" placeholder="Enter display name" required><button type="submit">Save display name</button></form><p id="status" role="status" aria-live="polite">No changes saved.</p></main>
+<script>
+document.querySelector('form').addEventListener('submit',event=>{event.preventDefault();document.querySelector('#status').textContent='Saved display name: '+document.querySelector('#name').value;});
+</script>
+</html>

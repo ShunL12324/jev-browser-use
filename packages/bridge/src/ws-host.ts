@@ -215,6 +215,9 @@ export async function startWsHost(opts: { port: number }): Promise<WsHost> {
     },
     async close() {
       flushPending('bridge shutting down')
+      notifyWaiters(false)
+      // A connected extension must not keep the stdio child alive on exit.
+      for (const ws of wss.clients) ws.terminate()
       await new Promise<void>((resolve) => wss.close(() => resolve()))
     }
   }

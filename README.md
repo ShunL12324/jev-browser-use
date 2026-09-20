@@ -4,6 +4,8 @@
 
 TypeSafe 全站阅读：[109 页阅读笔记与纠正](docs/typesafe/reading.zh-CN.md) · [逐页清单](docs/typesafe/pages.zh-CN.md)。
 
+Jev 实验已接通：[运行说明与真实浏览器验证](docs/jev-runner.zh-CN.md)。
+
 Source: `ShunL12324/browser-use@5a16c5dca40b457f6232cdbbba404783957eba20` (Git remote: `upstream`).
 
 MCP-driven browser automation. Pair the Chrome extension with the `browser-use-mcp` bridge to drive Chrome from Claude Code (or any MCP client) with no Electron host.
