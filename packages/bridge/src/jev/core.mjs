@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { reserveRequest, DEFAULT_LEDGER } from './budget.mjs'
+import { safeApiDiagnostic } from './diagnostics.mjs'
 
 const own = (object, key) => Object.hasOwn(object, key)
 const choice = (instructions, criteria) => ({ type: 'choice', instructions, criteria })
@@ -141,12 +142,26 @@ export async function askJev(payload, { signal, apiKey = process.env.TYPESAFE_AP
   signal?.throwIfAborted()
   const sequence = reserveRequest(ledgerPath, requestMetadata)
   onRequest(sequence)
-  const response = await fetch(url, { method: 'POST', signal: AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(20000)]), headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, ...payload }) })
-  // Never print a response body that could echo page data or credentials.
-  if (!response.ok) fail('API_ERROR', `Jev HTTP ${response.status}; request was not retried.`)
-  const result = await response.json()
-  validateAnswers(payload.questions, result.answers)
-  return result
+  const requestSignal = AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(20000)])
+  let stage = 'fetch', httpStatus
+  try {
+    const response = await fetch(url, { method: 'POST', signal: requestSignal, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, ...payload }) })
+    httpStatus = response.status
+    // Never print a response body that could echo page data or credentials.
+    if (!response.ok) fail('API_ERROR', `Jev HTTP ${response.status}; request was not retried.`)
+    stage = 'response_json'
+    const result = await response.json()
+    stage = 'validate'
+    validateAnswers(payload.questions, result.answers)
+    return result
+  } catch (error) {
+    const diagnostic = safeApiDiagnostic(error, { stage, httpStatus, signal: requestSignal, callerSignal: signal })
+    const code = error instanceof RunError && ['API_ERROR', 'BAD_ANSWER'].includes(error.code)
+      ? error.code : ['TypeError', 'SyntaxError', 'AbortError', 'TimeoutError'].includes(diagnostic.errorName) ? diagnostic.errorName : 'API_FAILURE'
+    const failure = new RunError(code, 'Jev request failed; see the safe diagnostic fields. The request was not retried.')
+    failure.diagnostic = diagnostic
+    throw failure
+  }
 }
 
 export async function run(taskInput, { call, ask = askJev, signal, emit = () => {}, dryRun = false }) {

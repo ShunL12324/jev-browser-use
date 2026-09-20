@@ -70,3 +70,11 @@ T105 的真实 J0 在 A180 因 48KB 请求上限停止。本轮仅压缩重复�
 离线检查 `npm test` 包括逐字段解码、候选顺序/none、frame ref、缺失/null/false/空串、给定同一答案的执行决定、原始指纹，以及254/255候选边界。机械容量预检运行 `node tests/e2e/jev-lab.mjs --compact`；它在随机隔离端口用真实扩展检查 round1/round2/holdout 的首步与点击目标后的第二步，写入 `/tmp/jev-lab-preflight-*`，不触碰17429，不发Jev请求。
 
 批准的真实矩阵：J1 round1 A8/A64/A120/A180各最多4次加B最多12次；round2 A180最多4次加B最多12次；冻结后holdout同样最多16次，总计最多60次，加已有15次不超过75。所有请求继续使用现有100次ledger；失败不退号。遇误完成或错记录保存先保留轨迹并暂停配置，不临时放宽阈值。
+
+## API 安全诊断
+
+API 失败时原生 MCP 的 `diagnostic` 与 JSONL `api_error/terminal` 会记录固定分类：`stage` 为 `fetch`（含HTTP状态检查）、`response_json` 或 `validate`；`httpStatus` 是已取得的合法状态码，否则 null；`aborted/callerAborted` 区分合并请求信号与上层信号是否取消；`errorName/causeCode` 只允许代码内固定名单，未知值写 other。CLI 错误输出同样带这份诊断。
+
+不记录原始 error.message、stack、cause对象、URL、headers或响应body；不改变20秒API超时、请求协议、模型、题目、候选或重试策略。一次失败仍保留发送前占号和 unknownUsageRequests，不能把未知用量当零费用。`fetch + UND_ERR_CONNECT_TIMEOUT` 只能说明连接阶段超时，不能单凭它断定DNS、IPv6或服务端故障；旧日志缺少cause的数据无法事后补推根因。
+
+诊断补丁与J1表示变更分开提交。下一次真实请求由master单独批准，从诊断储备计数；不得通过自动重复POST、固定IP、改全局hosts或更换模型来绕过未定位的问题。

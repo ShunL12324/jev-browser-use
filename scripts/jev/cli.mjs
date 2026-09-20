@@ -26,6 +26,6 @@ try {
     process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop)
   }
 } catch (error) {
-  console.error(JSON.stringify({ event: 'error', code: error.code ?? error.name, message: error.message }))
+  console.error(JSON.stringify({ event: 'error', code: error.code ?? error.name, message: error.message, diagnostic: error.diagnostic }))
   process.exitCode = 1
 } finally { await browser?.close() }
