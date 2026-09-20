@@ -1,5 +1,9 @@
 # browser-use
 
+本地复刻与设计整理：[架构、JobShark 拆分关系、验证记录及 Jev 接入建议](docs/architecture.zh-CN.md)。
+
+Source: `ShunL12324/browser-use@5a16c5dca40b457f6232cdbbba404783957eba20` (Git remote: `upstream`).
+
 MCP-driven browser automation. Pair the Chrome extension with the `browser-use-mcp` bridge to drive Chrome from Claude Code (or any MCP client) with no Electron host.
 
 ```
@@ -18,8 +22,8 @@ The extension does the DOM work; the bridge translates MCP tool calls into a sma
 ### 1. Build
 
 ```sh
-cd /Users/shun/projects/browser-use
-npm install
+cd /home/shun/projects/jev-browser-use
+npm ci
 npm run build
 ```
 
@@ -43,7 +47,7 @@ Add to your MCP config (`~/.claude.json` or run `claude mcp add`):
   "mcpServers": {
     "browser-use": {
       "command": "node",
-      "args": ["/Users/shun/projects/browser-use/packages/bridge/dist/index.js"]
+      "args": ["/home/shun/projects/jev-browser-use/packages/bridge/dist/index.js"]
     }
   }
 }
@@ -100,6 +104,7 @@ packages/
 ```
 
 Scripts:
+- `npm test` — bridge regression tests and stdio/WebSocket integration smoke test (simulated extension)
 - `npm run build` — both packages
 - `npm run build:extension`
 - `npm run build:bridge`

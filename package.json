@@ -5,6 +5,7 @@
   "description": "Chrome extension + MCP bridge for browser automation",
   "workspaces": ["packages/*"],
   "scripts": {
+    "test": "npm run build:bridge && node --test tests/*.test.mjs",
     "build": "npm run build --workspaces --if-present",
     "build:extension": "npm run build --workspace browser-use-extension",
     "build:bridge": "npm run build --workspace browser-use-mcp"

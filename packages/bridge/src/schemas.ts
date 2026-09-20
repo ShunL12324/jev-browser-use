@@ -23,7 +23,7 @@ const TargetShape = {
 
 export const Shapes = {
   snapshot: {
-    limit: z.number().int().min(1).max(500).optional().describe('Max interactables to return. Default 50.'),
+    limit: z.number().int().min(1).max(500).optional().describe('Max interactables to return. Omit to return all visible interactables.'),
     ...TabIdShape
   },
 
@@ -46,7 +46,7 @@ export const Shapes = {
   },
 
   type: {
-    ...TargetShape,
+    ref: z.string().min(1).describe('Element ref from a prior snapshot/view. Required for typing.'),
     text: z.string().describe('Text to type. UTF-8 supported.'),
     clear: z.boolean().optional().describe('Clear the field first.'),
     submit: z.boolean().optional().describe('Press Enter after typing.'),
@@ -176,19 +176,9 @@ export function reshapeParams(tool: ToolKey, raw: Record<string, unknown>): { pa
       return { tabId, params: { ...maybeTarget(rest), button, double } }
     }
     case 'type': {
-      const { ref, text, x, y, ...other } = rest as Record<string, unknown>
-      // 'text' here is the field being typed; the target-text is also 'text'
-      // — collision. In the type tool we treat top-level `text` as the value
-      // typed AND the target text (rare to want both). If user passes ref or
-      // x/y, we use them for target; otherwise we leave target empty so the
-      // extension falls back to the focused element. The actual typed text
-      // is sent in `text`. To target by visible text, ask user to set ref
-      // first via snapshot.
-      void text
-      const target: Record<string, unknown> = {}
-      if (typeof ref === 'string') target.ref = ref
-      if (typeof x === 'number' && typeof y === 'number') target.point = { x, y }
-      return { tabId, params: { target, text: rest.text, clear: other.clear, submit: other.submit } }
+      // The extension requires a ref; text is exclusively the value to type.
+      const { ref, text, clear, submit } = rest
+      return { tabId, params: { target: { ref }, text, clear, submit } }
     }
     case 'select':
     case 'hover':
@@ -204,8 +194,8 @@ export function reshapeParams(tool: ToolKey, raw: Record<string, unknown>): { pa
       return { tabId, params }
     }
     case 'tabs': {
-      // Pass through but the discriminated union means we trust the action+fields combo
-      return { tabId, params: rest }
+      // Tab operations read their target from params, not the routing tabId.
+      return { tabId, params: { ...rest, tabId } }
     }
     default:
       // snapshot, view, navigate, press_key, wait_for, network_log,
