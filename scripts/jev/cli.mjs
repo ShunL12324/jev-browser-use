@@ -20,7 +20,7 @@ try {
       console.log(JSON.stringify(tabs, null, 2))
     } else {
       const result = await run(task, { call: browser.call, signal: controller.signal, dryRun: values['dry-run'], emit: event => { if (event.event !== 'observation') console.log(JSON.stringify(event)) } })
-      console.log(JSON.stringify({ event: 'finished', ...result }))
+      console.log(JSON.stringify({ event: 'finished', mode: task.mode, ...result }))
       if (!['done', 'dry_run'].includes(result.status)) process.exitCode = 2
     }
     process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop)

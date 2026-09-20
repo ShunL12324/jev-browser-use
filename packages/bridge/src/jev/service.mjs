@@ -43,11 +43,11 @@ export async function executeRun(input, { host, signal, ask = askJev, ledgerPath
     const task = validateTask(input)
     const url = new URL(task.startUrl)
     if (!['127.0.0.1', 'localhost'].includes(url.hostname) || url.port !== '17430' || url.protocol !== 'http:') throw new RunError('EXPERIMENT_ORIGIN', 'jev_run is restricted to the isolated local fixture on port 17430.')
-    if (task.maxSteps > 12 || task.timeoutMs > 120000) throw new RunError('EXPERIMENT_LIMIT', 'J0 allows at most 12 decisions and 120000 ms per run.')
+    if (task.maxSteps > 12 || task.timeoutMs > 120000) throw new RunError('EXPERIMENT_LIMIT', 'Experiment runs allow at most 12 decisions and 120000 ms per run.')
     requireBudget(ledgerPath, task.maxSteps)
     mkdirSync(traceDirectory, { recursive: true, mode: 0o700 })
     tracePath = join(traceDirectory, `${runId}.jsonl`)
-    record({ event: 'start', sourceSha, phase: input.phase ?? 'J0', scenario: input.scenario ?? 'unspecified', seed: input.seed ?? 'unspecified', task })
+    record({ event: 'start', sourceSha, mode: task.mode, phase: input.phase ?? 'J0', scenario: input.scenario ?? 'unspecified', seed: input.seed ?? 'unspecified', task })
     const call = async (name, args, runSignal) => {
       runSignal.throwIfAborted()
       const { params, tabId: targetTab } = reshapeParams(name, args)
@@ -69,7 +69,7 @@ export async function executeRun(input, { host, signal, ask = askJev, ledgerPath
     const countedAsk = async (payload, options) => {
       options.signal.throwIfAborted()
       // No authenticated network request is possible until this durable slot exists.
-      const requestMetadata = { runId, phase: input.phase ?? 'J0', scenario: input.scenario, seed: input.seed, sourceSha, payloadHash: hash(payload) }
+      const requestMetadata = { runId, mode: task.mode, phase: input.phase ?? 'J0', scenario: input.scenario, seed: input.seed, sourceSha, payloadHash: hash(payload) }
       let sequence
       const onRequest = reserved => {
         sequence = reserved; requests++
@@ -93,7 +93,7 @@ export async function executeRun(input, { host, signal, ask = askJev, ledgerPath
   } catch (error) {
     result = { status: 'error', code: error.code ?? error.name, details: error.details, message: error instanceof RunError ? error.message : 'Run stopped; inspect the local trace for the failing stage.' }
   }
-  const terminal = { ...result, runId, sourceSha, tabId: result.tabId ?? tabId ?? null, steps: result.steps ?? steps, requests, inputTokens, unknownUsageRequests: requests - knownUsageResponses, startedAt, finishedAt: new Date().toISOString(), elapsedMs: performance.now() - start, timingMs, tracePath: tracePath ?? null, verification: 'not_independently_verified', takeoverAllowed: !uncertainInFlight, handoff: result.status !== 'done' && !uncertainInFlight }
+  const terminal = { ...result, runId, mode: input.mode ?? 'J0', sourceSha, tabId: result.tabId ?? tabId ?? null, steps: result.steps ?? steps, requests, inputTokens, unknownUsageRequests: requests - knownUsageResponses, startedAt, finishedAt: new Date().toISOString(), elapsedMs: performance.now() - start, timingMs, tracePath: tracePath ?? null, verification: 'not_independently_verified', takeoverAllowed: !uncertainInFlight, handoff: result.status !== 'done' && !uncertainInFlight }
   record({ event: 'terminal', ...terminal })
   // Full snapshots/questions stay in the local trace. Native MCP gets bounded
   // decision/action evidence plus a path the independent reviewer can inspect.
@@ -103,13 +103,13 @@ export async function executeRun(input, { host, signal, ask = askJev, ledgerPath
 export function registerJev(server, { host, gate }) {
   server.registerTool('jev_run', {
     title: 'Run a bounded Jev browser experiment',
-    description: 'Run the unchanged J0 Jev decision policy in a new isolated fixture tab, using the same extension bridge as browser_* tools. Only localhost:17430. Synchronous; timeout may drain an in-flight command before returning. done is not independent verification. Inspect the resulting tab/oracle separately; host continuation is not Jev success.',
+    description: 'Run the Jev decision policy (default J0; J1 compact candidate references) in a new isolated fixture tab, using the same extension bridge as browser_* tools. Only localhost:17430. Synchronous; timeout may drain an in-flight command before returning. done is not independent verification. Inspect the resulting tab/oracle separately; host continuation is not Jev success.',
     inputSchema: {
       goal: z.string().min(1), startUrl: z.string().url(), values: z.record(z.string()).optional(), expectedText: z.string().min(1).optional(),
       maxSteps: z.number().int().min(1).max(12).default(12), timeoutMs: z.number().int().min(1000).max(120000).default(120000),
       maxInputTokens: z.number().int().min(1000).max(100000).default(100000),
       minProbability: z.number().positive().max(1).default(0.6), doneProbability: z.number().positive().max(1).default(0.9),
-      phase: z.literal('J0').default('J0'), scenario: z.enum(['A', 'B']), seed: z.string().min(1)
+      mode: z.enum(['J0', 'J1']).default('J0'), phase: z.enum(['J0', 'J1']).default('J0'), scenario: z.enum(['A', 'B']), seed: z.string().min(1)
     }
   }, async (input, extra) => {
     try {

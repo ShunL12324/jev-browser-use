@@ -1,0 +1,12 @@
+{
+  "task": {"goal":"Set display name to River and reviewer to Riley, then save.","startUrl":"http://127.0.0.1:17430/session/frozen","values":{"display":"River","reviewer":"Riley"},"expectedText":"Saved record","maxSteps":12},
+  "view": {"url":"http://127.0.0.1:17430/session/frozen","title":"Frozen record","content":"Display name and Reviewer name. Save or cancel. Pending changes.","truncated":false},
+  "snapshot": {"url":"http://127.0.0.1:17430/session/frozen","interactables":[
+    {"ref":"e1","role":"textbox","name":"Display name","tag":"input","value":"","disabled":false},
+    {"ref":"f2:e9","role":"textbox","name":"Reviewer name","tag":"textarea","value":"existing","disabled":false},
+    {"ref":"e3","role":"button","name":"Save","tag":"button","disabled":false},
+    {"ref":"e4","role":"button","name":"Cancel","tag":"button","value":null,"disabled":true},
+    {"ref":"e5","role":null,"name":"","tag":"input"}
+  ]},
+  "history": [{"step":1,"action":"click","ref":"e8","result":"tool_returned_success; verify against next observation"}]
+}

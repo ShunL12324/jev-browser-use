@@ -152,3 +152,13 @@ test('ledger survives process restarts and concurrent senders never allocate bey
   assert.ok(outputs.every(x=>/^\d+$/.test(x)||['BUDGET_LIMIT','BUDGET_LOCKED'].includes(x)))
   const after=await child();assert.ok(after==='100'||after==='BUDGET_LIMIT')
 }))
+
+
+test('J1 mode is recorded in terminal, trace and the shared request ledger', async () => temporary(async dir => {
+  const ledgerPath=join(dir,'mode-budget.json')
+  const result=await executeRun({...task,mode:'J1',phase:'J1'},{host:fakeHost(),ledgerPath,traceDirectory:dir,ask:async payload=>{assert.equal(payload.state.page.element_fields.r,'ref');return response(payload)}})
+  assert.equal(result.mode,'J1');assert.equal(result.status,'done')
+  const ledger=JSON.parse(await readFile(ledgerPath,'utf8'));assert.ok(ledger.requests.every(r=>r.mode==='J1'&&r.phase==='J1'))
+  const trace=(await readFile(result.tracePath,'utf8')).trim().split('\n').map(JSON.parse)
+  assert.equal(trace[0].mode,'J1');assert.equal(trace.at(-1).mode,'J1');assert.ok(trace.filter(e=>e.event==='prepared').every(e=>e.mode==='J1'))
+}))

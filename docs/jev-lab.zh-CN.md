@@ -44,7 +44,7 @@ curl -s http://127.0.0.1:17430/reset -H 'Content-Type: application/json' \
 
 ## 预算与证据
 
-所有真实 `askJev` 调用（包括 standalone CLI/诊断）都在发送前通过共享 ledger 原子占号，最多 100 次，无自动重试；网络失败也消耗占号。`jev_run` 启动前检查剩余额度至少能容纳 maxSteps；每次发送仍检查上限。ledger 锁或JSON损坏时拒绝发送，不静默清零。不要删 ledger 或以不同路径运行付费实验。首轮分配 24 基线 / 48 单轴迭代 / 16 保留 seed / 12 诊断由 tester/master 调度；本版只暴露 J0。
+所有真实 `askJev` 调用（包括 standalone CLI/诊断）都在发送前通过共享 ledger 原子占号，最多 100 次，无自动重试；网络失败也消耗占号。`jev_run` 启动前检查剩余额度至少能容纳 maxSteps；每次发送仍检查上限。ledger 锁或JSON损坏时拒绝发送，不静默清零。不要删 ledger 或以不同路径运行付费实验。首轮分配 24 基线 / 48 单轴迭代 / 16 保留 seed / 12 诊断由 tester/master 调度；策略表示通过 mode 显式选择；默认 J0，J1 需传入 mode=J1。phase 是独立的实验阶段标签，不会隐式切换表示。
 
 JSONL 包含源码SHA、配置、页面快照、问题和hash、候选/字节数、每次请求序号、模型答案概率及用量、proposed decision、实际工具开始/返回、终态时间与错误。API异常正文不入日志。这些快照只用于合成本地站。终态保留 tabId、请求数、已知 inputTokens、unknownUsageRequests、observe/execute/wait/API分段时间；独立验收耗时由tester补充。请求占号不等于已成功抵达服务端，未知费用不能当作零。
 
@@ -58,3 +58,15 @@ node tests/e2e/jev-lab.mjs
 离线测试检查预算、同bridge工具发现/转发、互斥与取消排空、错误保留证据、reset隔离和oracle负例。机械 E2E 在随机专用端口启动自己的临时 Chromium/真实扩展，通过 MCP→WS→扩展完成页面动作，不调用 Jev，不使用用户 Chrome。它不是原生MCP真实模型验收的替代。
 
 开发时机械实测 A 的 enabled 数量为 8/64/180/120，对应初始payload约4597/24227/超过48000/43899 bytes；B 完整保存并通过oracle。以上均为设施证据，真实模型结果由独立tester记录。
+
+## J1：无损紧凑候选表示
+
+T105 的真实 J0 在 A180 因 48KB 请求上限停止。本轮仅压缩重复表示：元素字段 `ref/role/name/tag/value/disabled` 改为 `r/o/n/t/v/d`，模型 state 内附完整 `element_fields` 映射；click_target/type_target 的候选描述改为原 ref 字符串，题目追加查表说明。数组顺序、全部候选（包括干扰项）、none、页面全文、值、目标及历史均保留。缺失字段、null、false、空字符串不互换。
+
+执行侧 `prepared.elements` 与循环检测 fingerprint 仍使用原始对象；动作、目标校验、阈值、48KB、步数、完成和 API 策略不改，fixture 不改。表示信息可逆不代表模型表现相同，必须通过独立真实实验核验。
+
+`jev_run` 保持默认 `mode=J0`。运行 J1 时将 `/reset` 返回 task 加上 `"mode":"J1","phase":"J1"`；只改 phase 不会切换模式。CLI task JSON 同样接受 mode。trace 开始、prepared、terminal 和 ledger 各请求均记录 mode。J0 的模型 payload 不包含额外 mode 字段，冻结黄金测试与 T105 保持等价。
+
+离线检查 `npm test` 包括逐字段解码、候选顺序/none、frame ref、缺失/null/false/空串、给定同一答案的执行决定、原始指纹，以及254/255候选边界。机械容量预检运行 `node tests/e2e/jev-lab.mjs --compact`；它在随机隔离端口用真实扩展检查 round1/round2/holdout 的首步与点击目标后的第二步，写入 `/tmp/jev-lab-preflight-*`，不触碰17429，不发Jev请求。
+
+批准的真实矩阵：J1 round1 A8/A64/A120/A180各最多4次加B最多12次；round2 A180最多4次加B最多12次；冻结后holdout同样最多16次，总计最多60次，加已有15次不超过75。所有请求继续使用现有100次ledger；失败不退号。遇误完成或错记录保存先保留轨迹并暂停配置，不临时放宽阈值。

@@ -10,6 +10,7 @@ import { createLab } from '../../scripts/jev/lab.mjs'
 import { connectBrowser } from '../../scripts/jev/mcp.mjs'
 import { prepare, validateTask } from '../../scripts/jev/core.mjs'
 
+const compact=process.argv.includes('--compact')
 const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE ?? '/tmp/jev-browser-validation/node_modules/playwright/index.mjs').href)
 const evidence=await mkdtemp(join(tmpdir(),'jev-lab-preflight-'))
 console.log(JSON.stringify({event:'evidence_directory',path:evidence}))
@@ -47,6 +48,26 @@ try {
     const metrics={event:'density_measured',seed,density,candidates:snapshot.interactables.length,payloadBytes,resourceBoundary}
     await writeFile(join(evidence,`${seed}-${density}.json`),JSON.stringify({task:session.task,view,snapshot,metrics},null,2))
     console.log(JSON.stringify(metrics))
+    if(compact){
+      const compactTask=validateTask({...session.task,mode:'J1'})
+      const check=(v,s,history=[])=>{
+        const p=prepare(compactTask,v,s,history)
+        const decoded=p.state.page.elements.map(e=>Object.fromEntries(Object.entries(e).map(([key,value])=>[p.state.page.element_fields[key],value])))
+        assert.deepEqual(JSON.parse(JSON.stringify(decoded)),JSON.parse(JSON.stringify(p.elements)))
+        assert.deepEqual(Object.keys(p.questions.click_target.criteria),[...p.elements.filter(e=>!e.disabled).map(e=>e.ref),'none'])
+        const bytes=Buffer.byteLength(JSON.stringify({state:p.state,questions:p.questions}));assert.ok(bytes<48000)
+        return {bytes,payload:{state:p.state,questions:p.questions},fingerprint:p.fingerprint}
+      }
+      const initial=check(view,snapshot)
+      const target=snapshot.interactables.find(e=>e.name==='Open Harbor release guide | Operations | v3');assert.ok(target)
+      await browser.call('click',{tabId,ref:target.ref})
+      const openedView=await browser.call('view',{tabId}),openedSnapshot=await browser.call('snapshot',{tabId,limit:500})
+      assert.ok(openedView.content.includes(session.task.expectedText))
+      const history=[{step:1,action:'click',ref:target.ref,result:'tool_returned_success; verify against next observation'}]
+      const opened=check(openedView,openedSnapshot,history)
+      await writeFile(join(evidence,`${seed}-${density}-compact.json`),JSON.stringify({task:{...session.task,mode:'J1'},initial,opened,openedView,openedSnapshot,history},null,2))
+      console.log(JSON.stringify({event:'compact_capacity',seed,density,initialBytes:initial.bytes,openedBytes:opened.bytes,candidates:density}))
+    }
     await browser.call('tabs',{action:'close',tabId})
   }
   const session=await reset('B',8),{tabId}=await browser.call('tabs',{action:'new',url:'about:blank'})
