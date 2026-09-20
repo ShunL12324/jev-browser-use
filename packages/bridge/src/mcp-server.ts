@@ -7,12 +7,16 @@ import { Shapes, Descriptions, reshapeParams, type ToolKey } from './schemas.js'
 import { type WsHost } from './ws-host.js'
 import { ToolInvokeError } from './types.js'
 import { log } from './log.js'
+import { createGate, registerJev } from './jev/service.mjs'
 
 export async function startMcpServer(opts: { host: WsHost; version: string }) {
   const server = new McpServer(
     { name: 'browser-use', version: opts.version },
     { capabilities: { tools: {} } }
   )
+
+  const gate = createGate()
+  registerJev(server, { host: opts.host, gate })
 
   for (const name of Object.keys(Shapes) as ToolKey[]) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,17 +31,18 @@ export async function startMcpServer(opts: { host: WsHost; version: string }) {
       async (rawInput: unknown) => {
         const { params, tabId } = reshapeParams(name, (rawInput ?? {}) as Record<string, unknown>)
         try {
-          const result = await opts.host.invoke(name, params, tabId)
+          const result = await gate.exclusive(() => opts.host.invoke(name, params, tabId))
           return {
             content: [{ type: 'text' as const, text: jsonStringify(result) }]
           }
         } catch (e) {
-          if (e instanceof ToolInvokeError) {
+          if (e instanceof ToolInvokeError && ['TIMEOUT', 'BRIDGE_DISCONNECT'].includes(e.code)) gate.poison()
+          if (e instanceof ToolInvokeError || (e instanceof Error && 'code' in e && e.code === 'BUSY')) {
             return {
               isError: true,
               content: [{
                 type: 'text' as const,
-                text: jsonStringify({ code: e.code, short_term: e.short_term, message: e.message })
+                text: jsonStringify({ code: e.code, short_term: 'short_term' in e ? e.short_term : true, message: e.message })
               }]
             }
           }
@@ -59,7 +64,7 @@ export async function startMcpServer(opts: { host: WsHost; version: string }) {
 
   const transport = new StdioServerTransport()
   await server.connect(transport)
-  log.info(`MCP stdio server ready — ${Object.keys(Shapes).length} tools registered`)
+  log.info(`MCP stdio server ready — ${Object.keys(Shapes).length} browser tools + jev_run registered`)
   return server
 }
 

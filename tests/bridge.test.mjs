@@ -51,8 +51,11 @@ test('real stdio MCP process relays calls, errors, and heartbeat to a simulated 
   try {
     await client.connect(transport)
     const { tools } = await client.listTools()
-    assert.equal(tools.length, 18)
-    assert.ok(tools.every(tool => tool.name.startsWith('browser_')))
+    assert.equal(tools.length, 19)
+    assert.equal(tools.filter(tool => tool.name.startsWith('browser_')).length, 18)
+    assert.ok(tools.some(tool => tool.name === 'jev_run'))
+    const rejected = await client.callTool({ name: 'jev_run', arguments: { goal: 'No action', startUrl: 'https://example.com/', scenario: 'A', seed: 'test' } })
+    assert.equal(JSON.parse(rejected.content[0].text).code, 'EXPERIMENT_ORIGIN')
     ws = new WebSocket(`ws://127.0.0.1:${port}/mcp`)
     await once(ws, 'open')
     ws.send(JSON.stringify({ v: 1, kind: 'hello', id: 'hello', client: 'extension', extensionVersion: 'test' }))

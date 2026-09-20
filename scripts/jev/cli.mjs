@@ -19,7 +19,7 @@ try {
       const tabs = await browser.call('tabs', { action: 'list' }, AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]))
       console.log(JSON.stringify(tabs, null, 2))
     } else {
-      const result = await run(task, { call: browser.call, signal: controller.signal, dryRun: values['dry-run'], emit: event => console.log(JSON.stringify(event)) })
+      const result = await run(task, { call: browser.call, signal: controller.signal, dryRun: values['dry-run'], emit: event => { if (event.event !== 'observation') console.log(JSON.stringify(event)) } })
       console.log(JSON.stringify({ event: 'finished', ...result }))
       if (!['done', 'dry_run'].includes(result.status)) process.exitCode = 2
     }

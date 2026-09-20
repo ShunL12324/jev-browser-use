@@ -12,6 +12,8 @@
     "build:extension": "npm run build --workspace browser-use-extension",
     "build:bridge": "npm run build --workspace browser-use-mcp",
     "jev": "node scripts/jev/cli.mjs",
-    "demo": "node scripts/jev/demo.mjs"
+    "demo": "node scripts/jev/demo.mjs",
+    "lab": "node scripts/jev/lab.mjs",
+    "browser:isolated": "node scripts/jev/isolated-browser.mjs"
   }
 }

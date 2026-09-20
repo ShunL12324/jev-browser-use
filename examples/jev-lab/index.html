@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Knowledge directory — isolated Jev lab</title>
+<style>
+body{font:16px system-ui;margin:24px auto;max-width:1080px;background:#f6f8fc;color:#17263c;padding:0 20px}header,article,section{background:white;padding:14px;border:1px solid #dbe1ea;border-radius:8px;margin:10px 0}h1{margin-bottom:6px}input,button{font:inherit;padding:8px;margin:5px;border:1px solid #8b9bb0;border-radius:4px}button{background:#e7eefc;cursor:pointer}button:disabled{opacity:.5}article{display:flex;align-items:center;justify-content:space-between;gap:16px}dialog{width:550px;border:1px solid #a9b5c7;border-radius:12px;padding:26px}dialog::backdrop{background:#18284077}label{display:block;margin:12px 0}.meta{font-size:14px;color:#455873}#saved{color:#1a6047}
+</style>
+<header><h1>Knowledge directory</h1><p id="context" class="meta"></p><p>Browse the catalog and open a record to read or edit its details.</p></header>
+<main><label>Search catalog <input id="search" aria-label="Search catalog" type="search" autocomplete="off"></label><div id="catalog"></div><section id="detail" hidden></section><section id="saved" hidden></section></main>
+<dialog id="editor" aria-label="Edit record"></dialog>
+<script type="module">
+const runId = location.pathname.split('/').pop()
+const api = '/api/' + runId
+async function request(path = '', body) {
+  const response = await fetch(api + path, body ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)} : {})
+  if (!response.ok) throw new Error('Fixture request failed')
+  return response.json()
+}
+const state = await request()
+document.querySelector('#context').textContent = `Run ${runId} · scenario ${state.scenario} · seed ${state.seed} · density ${state.density}`
+const catalog = document.querySelector('#catalog'), detail = document.querySelector('#detail'), editor = document.querySelector('#editor')
+function element(tag, text) { const el = document.createElement(tag); if (text) el.textContent = text; return el }
+function button(text, fn, label) { const el = element('button', text); if (label) el.setAttribute('aria-label',label); el.addEventListener('click',fn); return el }
+function renderCatalog() {
+  const term = document.querySelector('#search').value.toLowerCase()
+  catalog.replaceChildren()
+  for (const record of state.records.filter(r => `${r.title} ${r.category} ${r.version}`.toLowerCase().includes(term))) {
+    const row = element('article'), description = `${record.title} | ${record.category} | ${record.version}`
+    row.append(element('span', description), button('Open', () => open(record), `Open ${description}`)); catalog.append(row)
+  }
+}
+document.querySelector('#search').addEventListener('input',renderCatalog)
+async function open(record) {
+  await request('/open', {recordId:record.id})
+  detail.hidden = false; detail.replaceChildren(element('h2', `Opened: ${record.title} | ${record.category} | ${record.version}`))
+  if (state.scenario === 'B') { detail.append(button('Edit record', () => edit(record))); const inactive=button('Save',()=>{}); inactive.disabled=true; detail.append(inactive) }
+  detail.scrollIntoView({block:'center'})
+}
+function edit(record) {
+  editor.replaceChildren(element('h2',`Edit ${record.title}`),element('p',`${record.category} | ${record.version}`))
+  for (const [name,label,value] of [['displayName','Display name',record.displayName],['reviewerName','Reviewer name',record.reviewerName]]) {
+    const wrap = element('label',label), input = element('input'); input.type='text'; input.setAttribute('aria-label',label); input.name=name; input.value=value; input.required=true; wrap.append(input); editor.append(wrap)
+  }
+  const warning = element('p'); warning.setAttribute('role','status'); editor.append(warning)
+  editor.append(button('Review changes', () => {
+    const displayName = editor.querySelector('[name=displayName]').value, reviewerName = editor.querySelector('[name=reviewerName]').value
+    if (!displayName.trim() || !reviewerName.trim()) { warning.textContent='Both names are required.'; return }
+    confirm(record,displayName,reviewerName)
+  }))
+  document.querySelector('main').inert=true
+  for (const control of document.querySelectorAll('main input:not(:disabled),main button:not(:disabled)')) { control.dataset.modalDisabled='true'; control.disabled=true }
+  if (!editor.open) editor.showModal()
+}
+function confirm(record, displayName, reviewerName) {
+  editor.replaceChildren(element('h2','Confirm changes'),element('p',`${record.title} | ${record.category} | ${record.version}`),element('p',`Display name: ${displayName}`),element('p',`Reviewer name: ${reviewerName}`))
+  const save = button('Save', async () => {
+    save.disabled=true; save.textContent='Saving…'
+    await request('/save',{recordId:record.id,displayName,reviewerName})
+    editor.replaceChildren(element('h2','Changes saved'),element('p','Close the editor to inspect the saved record.'),button('Close editor',async () => {
+      await request('/close',{}); editor.close(); editor.replaceChildren(); document.querySelector('main').inert=false; for (const control of document.querySelectorAll('[data-modal-disabled]')) { control.disabled=false; delete control.dataset.modalDisabled }
+      const refreshed=await request(), saved=refreshed.saved
+      const box=document.querySelector('#saved'); box.hidden=false; box.replaceChildren(element('h2','Persistent saved record'),element('p',`Record: ${record.title} | ${record.category} | ${record.version}`),element('p',`Saved display name: ${saved.displayName}; reviewer name: ${saved.reviewerName}`)); box.scrollIntoView({block:'center'})
+    }))
+  })
+  editor.append(save)
+}
+renderCatalog()
+</script></html>

@@ -114,3 +114,5 @@ Scripts:
 - `npm run build:bridge`
 - `npm --workspace browser-use-extension run dev` — Vite HMR
 - `npm --workspace browser-use-extension run pack` — zip the extension
+
+隔离复杂页面实验与高层 `jev_run`：见 [J0 实验指南](docs/jev-lab.zh-CN.md)。
