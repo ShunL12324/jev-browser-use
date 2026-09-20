@@ -54,7 +54,7 @@ function gcs(el: Element): CSSStyleDeclaration {
   return s
 }
 
-/** Tag OR ARIA role — catches `<div role="heading" aria-level=2>` patterns from React SDUI frameworks (LinkedIn / Salesforce). */
+/** Tag OR ARIA role — catches `<div role="heading" aria-level=2>` patterns from React SDUI frameworks (including enterprise web apps). */
 function contentKind(el: Element): 'heading' | 'paragraph' | null {
   const tag = el.tagName
   if (HEADING_TAGS.has(tag)) return 'heading'

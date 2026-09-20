@@ -138,7 +138,7 @@ function ensureStop(): HTMLDivElement {
     <svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="margin-right:8px;vertical-align:middle">
       <path d="M128 20a108 108 0 1 0 108 108A108.12 108.12 0 0 0 128 20Zm0 192a84 84 0 1 1 84-84 84.09 84.09 0 0 1-84 84Zm40-112v56a12 12 0 0 1-12 12h-56a12 12 0 0 1-12-12v-56a12 12 0 0 1 12-12h56a12 12 0 0 1 12 12Z"/>
     </svg>
-    <span style="vertical-align:middle">Stop Quarry</span>
+    <span style="vertical-align:middle">Stop browser-use</span>
   `
   Object.assign(btn.style, {
     pointerEvents: 'auto',

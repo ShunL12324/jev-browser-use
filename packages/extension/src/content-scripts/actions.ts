@@ -297,7 +297,7 @@ export function actPressKey(p: {
 //                         primary scrollable container and scroll that.
 //   {} empty            → no-op.
 //
-// Why: modern SPAs (LinkedIn, Gmail, Slack, ...) frequently set
+// Why: modern SPAs (such as webmail and chat apps) frequently set
 // <body>{overflow:hidden} and put the real scroll on an inner <div>. Just
 // calling window.scrollBy returns "success" with 0 movement. Our finder
 // covers four candidate paths so most pages just work.
@@ -306,7 +306,7 @@ export function actPressKey(p: {
  * CSS-only scrollability check — cheap; used as a fast reject pass before
  * the more expensive probe. Treats `overflow: hidden` as potentially
  * scrollable (modern SPAs hide native scrollbars and drive scroll via JS
- * + scrollTop on hidden containers — LinkedIn / Gmail / Slack all do this).
+ * + scrollTop on hidden containers — many web apps do this).
  * Only `visible` / `clip` are definitively non-scrollable.
  */
 function isCssScrollable(el: Element): boolean {
@@ -324,8 +324,7 @@ function isCssScrollable(el: Element): boolean {
  * sticks. Reverts immediately. Sub-frame and invisible to users, but the
  * only reliable way to distinguish "scrollHeight > clientHeight but
  * scrollTop is pinned" (html/body on overflow-hidden SPAs) from "actually
- * responds to scrollTop assignment" (the inner container that LinkedIn
- * et al. scroll programmatically).
+ * responds to scrollTop assignment" (an inner container scrolled programmatically).
  */
 function isScrollable(el: Element): boolean {
   if (!isCssScrollable(el)) return false
@@ -351,7 +350,7 @@ function findScrollableAncestor(el: Element): Element | null {
   return null
 }
 
-/** Largest scrollable descendant — covers drawer/modal wrappers whose real scroller is a child (LinkedIn All Filters: aside > div > LazyColumn). */
+/** Largest scrollable descendant — covers drawer/modal wrappers whose real scroller is a child (for example, aside > div > scroll container). */
 function findScrollableDescendant(el: Element): Element | null {
   const queue: Element[] = [...Array.from(el.children)]
   let best: { el: Element; area: number } | null = null
@@ -676,7 +675,7 @@ function readField(el: Element, field: string): string | null {
 // Attributes we keep when serialising HTML for the LLM. Everything else
 // (class, style, componentkey, framework metadata like `_ngcontent`,
 // data-* except testid) is dropped — they balloon obfuscated-class-heavy
-// pages (LinkedIn, etc.) without adding signal.
+// pages (such as large single-page apps) without adding signal.
 const KEEP_ATTRS = new Set([
   'id', 'role', 'href', 'src', 'type', 'name', 'value', 'placeholder',
   'alt', 'title', 'target', 'rel', 'disabled', 'readonly', 'checked',

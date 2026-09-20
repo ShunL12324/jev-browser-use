@@ -84,7 +84,7 @@ function installEvalBridge() {
         window.location.origin
       )
     } catch (err) {
-      // Sites with strict CSP (LinkedIn, X, Stripe, banks) throw a giant
+      // Sites with strict CSP (such as payment and account portals) throw a giant
       // EvalError whose .message dumps the entire script-src directive.
       // Truncate it to a short, actionable line so the agent (a) doesn't
       // get drowned in CSP noise and (b) clearly hears "stop retrying".

@@ -2,14 +2,14 @@
 // via the DataTransfer API, in the content script. Zero CDP / debugger.
 //
 // Pipeline:
-//   1. Electron tool wrapper reads files from disk, base64-encodes payloads,
+//   1. MCP caller supplies base64-encoded file payloads and
 //      sends them over the bridge as `{ name, data, mimeType }`.
 //   2. SW receives, routes to the correct frame's content script.
 //   3. Content script (actSetFiles in actions.ts) decodes base64 → Uint8Array
 //      → File, builds a DataTransfer, assigns input.files, dispatches change.
 //
 // Sites that strictly check event.isTrusted on file inputs may still
-// reject — Boss直聘's real submission flow has been verified to accept it.
+// reject synthetic file changes.
 
 import { sendToFrame } from '../tab-message'
 import { parseRef } from '../frames'

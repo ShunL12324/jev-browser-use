@@ -1,7 +1,7 @@
 // Cross-context logger with prefix. Mirrors Manus's `[ManusOperator][scope]`
 // style so log lines from SW / content / side panel are visually grouped.
 
-const PREFIX = '[Quarry]'
+const PREFIX = '[browser-use]'
 
 type Level = 'debug' | 'info' | 'warn' | 'error'
 

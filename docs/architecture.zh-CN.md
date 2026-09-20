@@ -1,6 +1,6 @@
 # browser-use 复刻与架构整理
 
-核查日期：2026-09-20。本文依据两个仓库的源码，而非仅依据历史规划文档。
+核查日期：2026-09-20。项目范围仅限通用 browser-use：页面读取、导航、交互与 MCP 接入。本文保留旧仓库的来源和拆分记录，不引入任何垂直业务。
 
 ## 来源与复刻边界
 
@@ -32,7 +32,7 @@ flowchart LR
 - `src/main/bridge/server.ts`：Electron 内的 WebSocket 服务端；扩展主动连接它。
 - `extension/src/`：实际网页执行层。旧版包含 React popup、侧栏、会话／tab 分组状态、任务标题和停止按钮配套。
 - `src/main/agent/primer.ts`：根据当前域名提供技能名称和描述，再由 `skill_read` 按需读取正文。旧 CLAUDE.md 中“直接注入正文”的说明已落后于代码。
-- `src/main/skills/`、`src/main/memory/`：持久化技能与记忆，位于宿主侧。LinkedIn 技能包属于产品工作流，未进入独立 browser-use。
+- `src/main/skills/`、`src/main/memory/`：持久化技能与记忆，位于宿主侧。旧产品技能包未进入独立 browser-use。
 
 这里的“插件”是 Chrome MV3 扩展。两个仓库中的浏览器接入设计并不是 Codex/Claude 的插件市场包；独立项目对外提供的是 MCP server。
 
@@ -94,7 +94,7 @@ flowchart LR
 | DOM walker、refs、iframe、shadow DOM、网络捕获、18 个工具 | 保留 |
 | Electron Agent 循环与模型设置 | 移除，由 MCP 客户端承担 |
 | Chat / History / Skills / Memory 产品界面 | 移除 |
-| 网站技能、记忆、用户档案、求职业务 | 未迁移 |
+| 旧产品技能、记忆与业务模块 | 未迁移 |
 | 侧栏、会话状态、tab 分组／状态管理 | 移除，popup 简化 |
 | 宿主入口 | Electron WS 改为独立 Node stdio MCP + WS |
 | 默认端口／路径 | 17328/quarry 改为 17329/mcp |
@@ -155,4 +155,4 @@ flowchart TD
 
 MVP 建议仅允许 view/snapshot、navigate、click、type、scroll、wait_for，并要求固定 tabId、每步观察、最大步数／耗时／费用、重复动作检测。先在本地测试页做“搜索 → 打开结果 → 判断找到目标”或“填写但不提交”任务；记录成功率、动作次数、延迟、费用、大模型回退次数。完成判断需要页面证据，不能只依据 Jev 的置信度。
 
-复刻的 browser-use 是“执行层”；Jev runner 才是新增的“自主决策层”。需要恢复 JobShark 的 skills 或 memory 时，将它们放在 runner 的上下文管理层，而非塞入 Chrome 扩展。
+复刻的 browser-use 是“执行层”；Jev runner 才是新增的“自主决策层”。当前范围仅包含通用浏览器能力；后续 Jev 实验使用通用测试页面，不引入原产品业务。
