@@ -135,6 +135,8 @@ Chrome 开发者模式加载 `packages/extension/dist/`。用支持 stdio MCP �
 
 ## Jev 接在哪里（设计建议，尚未实现）
 
+以下是初步实验方向，尚未定为重构方案。完整阅读官方 109 页后，补充了 [接口语义、Function Calling、并行参数选择与限制](typesafe/reading.zh-CN.md)。候选不必枚举完整动作组合，独立参数问题可以预问后按分支消费；state 也不要求统一的庞大页面 schema。
+
 依据 [TypeSafe 官方文档](https://docs.typesafe.ai/introduction)，Jev 根据 state 回答预先定义的 Choice / Score / Noul 问题，返回结构化决策；自由文本生成需要另一个来源。
 
 建议新增独立 Node runner，作为现有 MCP 的客户端：

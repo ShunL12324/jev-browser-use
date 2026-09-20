@@ -2,6 +2,8 @@
 
 本地复刻与设计整理：[架构、JobShark 拆分关系、验证记录及 Jev 接入建议](docs/architecture.zh-CN.md)。
 
+TypeSafe 全站阅读：[109 页阅读笔记与纠正](docs/typesafe/reading.zh-CN.md) · [逐页清单](docs/typesafe/pages.zh-CN.md)。
+
 Source: `ShunL12324/browser-use@5a16c5dca40b457f6232cdbbba404783957eba20` (Git remote: `upstream`).
 
 MCP-driven browser automation. Pair the Chrome extension with the `browser-use-mcp` bridge to drive Chrome from Claude Code (or any MCP client) with no Electron host.
