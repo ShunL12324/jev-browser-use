@@ -2,6 +2,7 @@
   "name": "browser-use",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Chrome extension + MCP bridge for browser automation",
   "workspaces": [
     "packages/*"

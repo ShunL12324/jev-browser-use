@@ -1,5 +1,9 @@
 # browser-use
 
+Chrome MV3 扩展与 MCP，附带 TypeSafe Jev 决策实验。
+
+[真实实验结果与限制](docs/experiments/2026-09-21.zh-CN.md)：保留全部 180 个候选的页面选择，以及双字段确认保存，已通过原生 MCP 和独立结果核验。高层 `jev_run` 目前仅面向本地实验站，不是通用网站自动驾驶接口。
+
 本地复刻与设计整理：[架构、JobShark 拆分关系、验证记录及 Jev 接入建议](docs/architecture.zh-CN.md)。
 
 TypeSafe 全站阅读：[109 页阅读笔记与纠正](docs/typesafe/reading.zh-CN.md) · [逐页清单](docs/typesafe/pages.zh-CN.md)。
@@ -15,6 +19,10 @@ Claude Code  <--stdio MCP-->  browser-use-mcp (Node)  <--ws://127.0.0.1:17329-->
 ```
 
 The extension does the DOM work; the bridge translates MCP tool calls into a small WebSocket protocol. 18 tools, all `browser_*`-prefixed: snapshot, view, navigate, click, type, press_key, select, hover, upload_file, wait_for, scroll, tabs, network_log, eval_js, inspect, get_cookie, request, batch.
+
+## License
+
+[MIT](LICENSE). Maintained by ShunL12324 and contributors. The extension and bridge originate from [ShunL12324/browser-use](https://github.com/ShunL12324/browser-use); historical extraction from JobShark is documented above. Third-party dependencies retain their own licenses.
 
 ## Requirements
 

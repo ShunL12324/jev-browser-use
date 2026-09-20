@@ -1,6 +1,7 @@
 {
   "name": "browser-use-extension",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Chrome MV3 extension that exposes browser-automation tools to the browser-use MCP bridge.",
   "type": "module",
   "private": true,

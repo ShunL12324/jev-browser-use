@@ -1,6 +1,7 @@
 {
   "name": "browser-use-mcp",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "MCP bridge for the browser-use Chrome extension. Spawned by Claude Code (or any MCP client) over stdio; relays tool calls to the extension over a local WebSocket.",
   "type": "module",
   "main": "./dist/index.js",
