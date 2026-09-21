@@ -8,7 +8,7 @@ export const REQUEST_LIMIT = 100
 // A lock shared across processes, and atomic replacement. A crashed lock fails
 // closed: an operator must inspect it; it must never silently reset paid usage.
 export function withLedger(path, update, requestLimit = REQUEST_LIMIT) {
-  if (!Number.isInteger(requestLimit) || requestLimit < 1 || requestLimit > REQUEST_LIMIT) throw new RunError('BUDGET_INVALID', 'Invalid explicit request limit.')
+  if (!Number.isInteger(requestLimit) || requestLimit < 1 || requestLimit > REQUEST_LIMIT && requestLimit !== 240) throw new RunError('BUDGET_INVALID', 'Invalid explicit request limit.')
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
   const lock = `${path}.lock`
   try { mkdirSync(lock, { mode: 0o700 }) } catch { throw new RunError('BUDGET_LOCKED', 'Budget ledger is locked; no request sent.') }

@@ -1,3 +1,4 @@
+import { actSetFiles } from './actions'
 import { shadowOf } from './shadow'
 import { documentId } from './document'
 import { buildSnapshot } from './snapshot'
@@ -8,13 +9,23 @@ import { findByRef } from './refs'
 import { setNativeValue, dispatchInput, dispatchChange } from './events'
 import type { Assertion, Locator, S1Request, S1Result } from '../shared/s1'
 
-const textTypes = new Set(['text', 'search', 'email', 'url', 'tel', 'password'])
+const textTypes = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number', 'date', 'datetime-local', 'month', 'week', 'time'])
 const visible = (el: Element) => { const b = getBounds(el); return !!b && isVisible(el, b) }
 const dialogs = () => Array.from(document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')).filter(visible)
 export function facts(el: Element, active = dialogs()) {
   const dialog = active.find(d => d.contains(el))
   const input = el instanceof HTMLInputElement, textarea = el instanceof HTMLTextAreaElement
   const name = deriveName(el, 10000)
+  const context: string[] = []
+  for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+    if (parent.matches('fieldset, [role="group"], [role="radiogroup"], [role="row"], section[aria-label], section[aria-labelledby]')) {
+      const label = parent instanceof HTMLFieldSetElement ? parent.querySelector(':scope > legend')?.textContent?.trim() : deriveName(parent, 10000)
+      if (label) context.unshift(label)
+    }
+  }
+  const rect = el.getBoundingClientRect(), hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+  const select = el instanceof HTMLSelectElement
+
   const ids = el.getAttribute('aria-labelledby')?.trim().split(/\s+/) ?? []
   const unresolvedLabel = ids.length > 20 || ids.some(id => !document.getElementById(id))
   return {
@@ -22,10 +33,19 @@ export function facts(el: Element, active = dialogs()) {
     disabled: isDisabled(el) || el.matches(':disabled'), readonly: input || textarea ? el.readOnly : false,
     inert: !!el.closest('[inert]'), modalBlocked: active.length > 0 && !dialog,
     dialog: dialog ? deriveName(dialog, 200) : null,
+    context, contextTruncated: context.some(c => c.length > 200) || context.length > 12,
+    centerReachable: !!hit && (hit === el || el.contains(hit)),
+    checked: input && ['checkbox', 'radio'].includes(el.type) ? el.checked : null,
+    nativeCheck: input && ['checkbox', 'radio'].includes(el.type),
+    nativeSelect: select && !el.multiple,
+    options: select ? Array.from(el.options).map(o => ({ value: o.value, label: o.label, disabled: o.disabled || !!o.closest('optgroup[disabled]') })) : undefined,
+    nativeFile: input && el.type === 'file',
+    files: input && el.type === 'file' ? Array.from(el.files ?? []).map(f => ({ name: f.name, size: f.size, type: f.type })) : undefined,
+    accept: input && el.type === 'file' ? el.accept : undefined,
     labels: Array.from((el as HTMLInputElement).labels ?? []).map(l => l.textContent?.trim() ?? ''),
     value: getValue(el) ?? null, inputType: input ? el.type : null,
     nativeText: textarea || (input && textTypes.has(el.type)),
-    nativeActivate: el instanceof HTMLButtonElement || el instanceof HTMLAnchorElement,
+    nativeActivate: el instanceof HTMLButtonElement || el instanceof HTMLAnchorElement || ['button', 'option', 'tab', 'menuitem', 'combobox'].includes(el.getAttribute('role') ?? '') && !input && !select,
     href: el instanceof HTMLAnchorElement ? el.href : null,
     visible: visible(el), shadowContext: el.getRootNode() !== document
   }
@@ -73,7 +93,7 @@ export async function handleS1(request: S1Request): Promise<S1Result> {
     if (!el) return reject('STALE_REF')
     const current = facts(el)
     if (JSON.stringify(current) !== JSON.stringify(request.expected)) return reject('STALE_REF')
-    if (current.shadowContext || current.disabled || current.readonly && request.operation === 'replace_text' || current.inert || current.modalBlocked || !current.visible || current.nameTruncated) return reject('UNREACHABLE')
+    if (current.shadowContext || current.disabled || current.readonly && request.operation === 'replace_text' || current.inert || current.modalBlocked || !current.visible || current.nameTruncated || current.contextTruncated) return reject('UNREACHABLE')
     if (request.operation !== 'scroll_into_view') {
       const rect = el.getBoundingClientRect(), hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
       if (!hit || !(hit === el || el.contains(hit))) return reject('UNREACHABLE')
@@ -92,6 +112,22 @@ export async function handleS1(request: S1Request): Promise<S1Result> {
       (el as HTMLElement).focus()
       setNativeValue(el as HTMLInputElement, request.text)
       dispatchInput(el, request.text); dispatchChange(el)
+      break
+    case 'select_option': {
+      if (!(el instanceof HTMLSelectElement) || el.multiple || typeof request.text !== 'string') return reject('WRONG_KIND')
+      const matches = Array.from(el.options).filter(o => o.value === request.text && !o.disabled && !o.closest('optgroup[disabled]'))
+      if (matches.length !== 1) return reject('BAD_VALUE_DOMAIN')
+      el.value = request.text
+      el.dispatchEvent(new Event('input', { bubbles: true })); dispatchChange(el)
+      break
+    }
+    case 'set_checked':
+      if (!(el instanceof HTMLInputElement) || !facts(el).nativeCheck || typeof request.checked !== 'boolean' || el.type === 'radio' && !request.checked) return reject('WRONG_KIND')
+      if (el.checked !== request.checked) el.click()
+      break
+    case 'upload_file':
+      if (!el || !facts(el).nativeFile || !request.files?.length) return reject('WRONG_KIND')
+      actSetFiles({ ref: request.ref!, files: request.files })
       break
     case 'scroll_into_view':
       if (!el) return reject('WRONG_KIND')

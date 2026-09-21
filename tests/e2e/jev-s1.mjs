@@ -1,5 +1,6 @@
 // Mechanical replay ONLY: no live provider or API credentials are used here.
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtemp, cp, readdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,6 +35,9 @@ try {
     await writeFile(path, text.replace(/\b17329\b/g, process.env.BROWSER_USE_PORT))
   }
   assert.equal(replacements, 1)
+  const fileBytes = Buffer.from('%PDF-1.4\nSynthetic S1 upload\n%%EOF')
+  process.env.JEV_S1_FILES_MANIFEST = join(temp, 'authorized-files.json')
+  await writeFile(process.env.JEV_S1_FILES_MANIFEST, JSON.stringify({ resume: { name: 'synthetic.pdf', mimeType: 'application/pdf', data: fileBytes.toString('base64'), sha256: createHash('sha256').update(fileBytes).digest('hex') } }))
   fixtures = await createS1Fixtures(); browser = await connectBrowser()
   context = await chromium.launchPersistentContext(join(temp, 'profile'), { channel: 'chromium', executablePath: process.env.CHROMIUM_EXECUTABLE ?? '/home/shun/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome', headless: true, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] })
   await (context.serviceWorkers()[0] ?? context.waitForEvent('serviceworker'))
@@ -91,6 +95,43 @@ try {
   const partial = await observe(); assert.equal(partial.view.truncated, true)
   const ambiguous = adaptObservation(partial, tabId)
   assert.ok(ambiguous.objects.filter(o => o.name === 'Duplicate action').every(o => o.ambiguous))
+  // Mechanical test fixture only. No page evaluation exists in the S1 runner.
+  await page.evaluate(() => {
+    document.body.innerHTML = `<main><fieldset><legend>Row 1</legend><label>Amount<input type="number"></label></fieldset><fieldset><legend>Row 2</legend><label>Amount<input type="number"></label></fieldset><label>Date<input type="date"></label><label>Location<select><option value="">Choose</option><option value="ca">Canada</option></select></label><label>Consent<input type="checkbox"></label><label>Remote<input type="radio" name="mode"></label><label>PDF<input type="file"></label><div role="option" tabindex="0">Custom option</div><output id="events"></output></main>`
+    for (const el of document.querySelectorAll('input, select')) el.addEventListener('change', () => document.querySelector('#events').textContent += el.type + ';')
+  })
+  const controls = validateS1Task({ goal: 'Mechanical control checks', startUrl: task.startUrl, allowedOrigins: [origin], values: {
+    amount: { text: '42', purpose: 'Second row amount', target: { role: 'textbox', name: 'Amount', context: 'Row 2' } },
+    date: { text: '2027-02-15', purpose: 'Date', target: { role: 'textbox', name: 'Date' } },
+    location: { text: 'ca', purpose: 'Location', target: { role: 'combobox', name: 'Location' } },
+    consent: { text: 'true', purpose: 'Consent', target: { role: 'checkbox', name: 'Consent' } },
+    remote: { text: 'true', purpose: 'Remote work', target: { role: 'radio', name: 'Remote' } }
+  }, files: { attachment: { fileId: 'resume', purpose: 'Authorized synthetic PDF', target: { role: 'file', name: 'PDF' } } } })
+  const prepared = async (op, valueId) => {
+    const o = adaptObservation(await observe(), tabId), set = enumerate(o, controls)
+    const c = set.candidates.find(c => c.operationId === op && (valueId ? c.domain?.[valueId] : true))
+    assert.ok(c, `Missing ${op}:${valueId}`)
+    return executionRequest(bindIntent(o, set, c, valueId), o, controls)
+  }
+  for (const [op, valueId] of [['replace_text', 'amount'], ['replace_text', 'date'], ['select_option', 'location'], ['set_checked', 'consent'], ['set_checked', 'remote'], ['upload_file', 'attachment'], ['activate']]) {
+    const request = await prepared(op, valueId)
+    if (op === 'upload_file') {
+      await assert.rejects(() => browser.call('s1', { tabId, ...request, fileId: 'not-authorized' }), { code: 'FILE_UNAUTHORIZED' })
+    }
+    assert.equal((await browser.call('s1', { tabId, ...request })).execution, 'returned')
+  }
+  assert.deepEqual(await page.locator('input[type=number]').evaluateAll(els => els.map(el => el.value)), ['', '42'])
+  assert.equal(await page.locator('input[type=date]').inputValue(), '2027-02-15')
+  assert.equal(await page.locator('select').inputValue(), 'ca')
+  assert.ok(await page.locator('input[type=checkbox]').isChecked())
+  assert.ok(await page.locator('input[type=radio]').isChecked())
+  const uploaded = await page.locator('input[type=file]').evaluate(async el => Array.from(new Uint8Array(await el.files[0].arrayBuffer())))
+  assert.equal(createHash('sha256').update(Buffer.from(uploaded)).digest('hex'), createHash('sha256').update(fileBytes).digest('hex'))
+  const staleCheck = { ...(await observe()) }
+  const checkbox = staleCheck.objects.find(o => o.facts.nativeCheck)
+  await page.locator('input[type=checkbox]').uncheck()
+  assert.equal((await browser.call('s1', { tabId, action: 'execute', operation: 'set_checked', documentId: staleCheck.documentId, url: staleCheck.url, allowedOrigins: [origin], ref: checkbox.ref, expected: checkbox.facts, checked: true })).code, 'STALE_REF')
+  console.log(JSON.stringify({ event: 's1_form_controls_pass', cases: ['container_binding', 'number', 'date', 'native_select', 'checkbox', 'radio', 'custom_option', 'real_file_hash', 'unauthorized_file', 'stale_checked_state'], liveJev: false }))
   console.log(JSON.stringify({ event: 's1_browser_negative_pass', cases: ['same_url_document', 'readonly', 'modal_background', 'parameter_stale', 'coverage_cut', 'scope_root_boundary', 'overlay', 'text_cut', 'duplicate_names'], liveJev: false }))
 } finally {
   await browser?.close(); await context?.close(); if (fixtures) await new Promise(r => fixtures.close(r))

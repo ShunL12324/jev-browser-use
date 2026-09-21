@@ -10,5 +10,5 @@ export interface Assertion {
 }
 export type S1Request =
   | { action: 'observe'; assertions: Assertion[]; limit?: number }
-  | { action: 'execute'; documentId: string; url: string; allowedOrigins: string[]; operation: string; ref?: string; expected?: Record<string, unknown>; text?: string }
+  | { action: 'execute'; documentId: string; url: string; allowedOrigins: string[]; operation: string; ref?: string; expected?: Record<string, unknown>; text?: string; checked?: boolean; files?: Array<{ name: string; mimeType?: string; data: string }> }
 export interface S1Result { ok: true; [key: string]: unknown }

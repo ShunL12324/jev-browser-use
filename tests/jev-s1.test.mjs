@@ -159,3 +159,131 @@ test('actual MCP registration rejects unknown task flow fields before any host c
     assert.equal(calls, 0)
   } finally { await client.close(); await server.close() }
 })
+
+test('complex limits are explicit; default S1 retains old limits', () => {
+  assert.throws(() => validateS1Task({ ...task(), maxSteps: 13 }), { code: 'TASK' })
+  const t = validateS1Task({ ...task(), profile: 'complex_forms', maxSteps: 160, maxRequests: 240, timeoutMs: 1800000, maxInputTokens: 2000000 })
+  assert.equal(t.maxRequests, 240)
+  assert.throws(() => validateS1Task({ ...t, maxRequests: 241 }), { code: 'TASK' })
+})
+test('repeated fields require a unique explicit container binding, including shared ancestors', () => {
+  const a = object(), b = object('e2'); a.facts.context = ['History', 'Job 1']; b.facts.context = ['History', 'Job 2']
+  const o = adaptObservation(raw([a, b]), 1)
+  assert.ok(o.objects.every(o => !o.ambiguous))
+  assert.ok(!enumerate(o, task()).candidates.some(c => c.operationId === 'replace_text'))
+  for (const context of ['History', 'Missing']) {
+    const t = task(); t.values.city.target.context = context
+    assert.ok(!enumerate(o, t).candidates.some(c => c.operationId === 'replace_text'))
+  }
+  const t = task(); t.values.city.target.context = 'Job 2'
+  const set = enumerate(o, t), c = set.candidates.find(c => c.operationId === 'replace_text')
+  assert.equal(c.targetId, 'e2')
+  assert.throws(() => executionRequest({ ...bindIntent(o, set, c, 'city'), targetId: 'e1' }, o, t), { code: 'BAD_VALUE_DOMAIN' })
+})
+test('registry binds enabled select options, checkbox boolean values and file IDs', () => {
+  const item = object(); Object.assign(item.facts, { nativeText: false, nativeSelect: true, options: [{ value: 'Hangzhou', disabled: false }] })
+  let o = adaptObservation(raw([item]), 1), set = enumerate(o, task())
+  assert.equal(set.candidates.find(c => c.operationId === 'select_option').domain.city.text, 'Hangzhou')
+  item.facts.options[0].disabled = true
+  assert.ok(!enumerate(adaptObservation(raw([item]), 1), task()).candidates.some(c => c.operationId === 'select_option'))
+  Object.assign(item.facts, { nativeSelect: false, nativeCheck: true, checked: false, inputType: 'checkbox' })
+  const t = task(); t.values.city.text = 'true'; o = adaptObservation(raw([item]), 1); set = enumerate(o, t)
+  const c = set.candidates.find(c => c.operationId === 'set_checked')
+  assert.equal(executionRequest(bindIntent(o, set, c, 'city'), o, t).checked, true)
+  Object.assign(item.facts, { nativeCheck: false, nativeFile: true })
+  t.files = { resume: { fileId: 'authorized', purpose: 'Attachment', target: { name: 'City', role: 'textbox' } } }
+  o = adaptObservation(raw([item]), 1); set = enumerate(o, t)
+  const f = set.candidates.find(c => c.operationId === 'upload_file')
+  assert.equal(executionRequest(bindIntent(o, set, f, 'resume'), o, t).fileId, 'authorized')
+})
+test('satisfied values and unreachable actions are excluded, scroll remains available', () => {
+  const item = object(); item.facts.value = 'Hangzhou'
+  assert.ok(!enumerate(adaptObservation(raw([item]), 1), task()).candidates.some(c => c.operationId === 'replace_text'))
+  item.facts.value = 'London'; item.facts.centerReachable = false
+  const set = enumerate(adaptObservation(raw([item]), 1), task())
+  assert.ok(!set.candidates.some(c => c.operationId === 'replace_text'))
+  assert.ok(set.candidates.some(c => c.operationId === 'scroll_into_view'))
+})
+test('parameter payload contains only selected target domain; action payload references compact targets', () => {
+  const o = adaptObservation(raw(), 1), t = task(), set = enumerate(o, t)
+  const c = set.candidates.find(c => c.operationId === 'replace_text')
+  const payload = compile(o, t, set, c)
+  assert.ok(!JSON.stringify(payload).includes('Display name'))
+  assert.ok(!payload.state.observation)
+  assert.deepEqual(compile(o, t, set).questions.operation.criteria[c.id].target, { id: 'e1', name: 'City' })
+})
+test('complex 240 budget is durable and incompatible with 30/100 ledgers', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'complex-budget-')), path = join(dir, 'budget.json')
+  try {
+    for (let i = 0; i < 240; i++) reserveRequest(path, {}, 240)
+    assert.throws(() => reserveRequest(path, {}, 240), { code: 'BUDGET_LIMIT' })
+    assert.throws(() => requireBudget(path, 1, 30), { code: 'BUDGET_INVALID' })
+    assert.throws(() => requireBudget(path, 1, 100), { code: 'BUDGET_INVALID' })
+    assert.equal(JSON.parse(readFileSync(path)).requests.length, 240)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+test('host file authorization rejects unknown IDs, malformed bytes and mismatched hash', async () => {
+  const { authorizeFile } = await import('../packages/bridge/dist/jev/s1-service.mjs')
+  const { createHash } = await import('node:crypto')
+  const data = Buffer.from('synthetic PDF')
+  const file = { name: 'resume.pdf', mimeType: 'application/pdf', data: data.toString('base64'), sha256: createHash('sha256').update(data).digest('hex') }
+  assert.equal(authorizeFile('resume', { resume: file }).data, file.data)
+  assert.throws(() => authorizeFile('unknown', { resume: file }), { code: 'FILE_UNAUTHORIZED' })
+  assert.throws(() => authorizeFile('resume', { resume: { ...file, sha256: '0'.repeat(64) } }), { code: 'FILE_UNAUTHORIZED' })
+  assert.throws(() => authorizeFile('resume', { resume: { ...file, data: file.data + '\n' } }), { code: 'FILE_UNAUTHORIZED' })
+})
+test('complex singleton binding follows model-selected target and records model/browser timing', async () => {
+  let asks = 0, executed
+  const result = await runS1({ ...task(), profile: 'complex_forms', maxSteps: 1 }, {
+    call: async (name, args) => {
+      await new Promise(r => setTimeout(r, 2))
+      if (name === 'tabs') return { tabId: 1 }
+      if (name === 'navigate') return {}
+      if (args.action === 'observe') return raw([object(), object('e2', 'Display name')])
+      executed = args; return { execution: 'returned' }
+    },
+    ask: async ({ questions }) => {
+      asks++; await new Promise(r => setTimeout(r, 2))
+      const id = Object.entries(questions.operation.criteria).find(([, c]) => c.operation === 'replace_text' && c.target.id === 'e2')[0]
+      return answer(questions, { operation: id })
+    }
+  })
+  assert.equal(asks, 1); assert.equal(executed.ref, 'e2'); assert.equal(executed.text, 'River')
+  assert.ok(result.timings.modelMs > 0 && result.timings.observationMs > 0 && result.timings.executionMs > 0)
+  assert.ok(result.timings.totalMs >= result.timings.modelMs + result.timings.browserMs)
+})
+test('complex ambiguous domain and legacy singleton still ask parameter question; missing domain is absent', async () => {
+  for (const [profile, multiple] of [['complex_forms', true], ['s1', false]]) {
+    let asks = 0, executed
+    const events = [], t = { ...task(), profile, maxSteps: 1 }
+    if (multiple) t.values.city2 = { ...t.values.city, text: 'Paris' }
+    const result = await runS1(t, {
+      emit: e => events.push(e),
+      call: async (name, args) => {
+        if (name === 'tabs') return { tabId: 1 }
+        if (name === 'navigate') return {}
+        if (args.action === 'observe') return raw()
+        executed = args; return { execution: 'returned' }
+      },
+      ask: async ({ questions }) => { asks++; return answer(questions) }
+    })
+    assert.equal(asks, 2); assert.equal(executed.text, 'Hangzhou')
+    assert.equal(events.find(e => e.event === 'parameter_binding').method, 'model')
+    assert.equal(result.status, 'step_limit')
+  }
+  const t = task(); t.values = {}
+  assert.ok(!enumerate(adaptObservation(raw(), 1), t).candidates.some(c => c.operationId === 'replace_text'))
+})
+test('service rejects unapproved uploads and complex opt-in before navigation or budget reservation', async () => {
+  const { executeS1Run, assertS1Origin } = await import('../packages/bridge/dist/jev/s1-service.mjs')
+  let calls = 0
+  const options = { host: { invoke: async () => { calls++ } }, authorizedFiles: {} }
+  await assert.rejects(() => executeS1Run({ ...task(), files: { f: { fileId: '/etc/passwd', purpose: 'invalid', target: { name: 'PDF', role: 'file' } } } }, options), { code: 'FILE_UNAUTHORIZED' })
+  const old = process.env.JEV_ENABLE_COMPLEX_FORMS; delete process.env.JEV_ENABLE_COMPLEX_FORMS
+  try { await assert.rejects(() => executeS1Run({ ...task(), profile: 'complex_forms' }, options), { code: 'EXPERIMENT_DISABLED' }) }
+  finally { if (old !== undefined) process.env.JEV_ENABLE_COMPLEX_FORMS = old }
+  assert.equal(calls, 0)
+  assert.throws(() => assertS1Origin('http://127.0.0.1:17431'), { code: 'EXPERIMENT_ORIGIN' })
+  assert.doesNotThrow(() => assertS1Origin('http://127.0.0.1:17431', true))
+  assert.throws(() => assertS1Origin('https://example.com', true), { code: 'EXPERIMENT_ORIGIN' })
+})

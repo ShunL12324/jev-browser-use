@@ -36,7 +36,7 @@ CHROMIUM_EXECUTABLE=/path/to/chromium node tests/e2e/jev-s1.mjs
 - `bindIntent` / `executionRequest`：参数绑定观察与已选目标。`replace_text` 的第二次 Jev 请求只包含该字段的值域。
 - `verify`：解释范围化 UI 断言；`runS1` 统一观察、决策、执行、后验与有限恢复，不分站点或动作名。
 
-已启用 `activate`（原生 link/button）、`replace_text`（原生 textarea 或 text/search/email/url/tel/password input）、页面上下滚动、目标滚入视口及短暂 wait。操作的 domain、映射、重放分类和后置检查在 registry 中声明；新能力需要补观察/registry/页面执行器，不在循环中新增动作分支。S1 激活使用同步 DOM `click()`，输入使用原生 value setter 加 input/change；不是可信硬件事件，不保证所有控件兼容。
+已启用 `activate`（原生 link/button 和显式 button/option/tab/menuitem/combobox 语义控件）、`replace_text`（原生 textarea 或 text/search/email/url/tel/password/number/date/datetime-local/month/week/time input）、`select_option`（单选原生 select）、`set_checked`（原生 checkbox/radio）、`upload_file`（宿主授权文件）、页面上下滚动、目标滚入视口及短暂 wait。操作的 domain、映射、重放分类和后置检查在 registry 中声明；新能力需要补观察/registry/页面执行器，不在循环中新增动作分支。S1 激活使用同步 DOM `click()`，输入使用原生 value setter 加 input/change；不是可信硬件事件，不保证所有控件兼容。
 
 任务值需要明确用途与目标标签：
 
@@ -50,7 +50,7 @@ CHROMIUM_EXECUTABLE=/path/to/chromium node tests/e2e/jev-s1.mjs
 }
 ```
 
-这里的目标绑定只限制参数域，不指定动作顺序。未匹配字段不会获得 replace_text 候选；自由文本生成、select 选项、文件上传等不在 S1 范围。字段同名且无可用上下文时能力 unknown；名称、角色与 dialog 上下文唯一才允许候选。参数题仍可能作出语义错误选择，UI 断言与独立 oracle 负责检出。
+这里的目标绑定只限制参数域，不指定动作顺序。未匹配字段不会获得参数化候选；已满足的文本、选择和勾选值不再枚举。自由文本生成不在范围。字段同名且无可用上下文时能力 unknown；名称、角色、dialog 和语义容器上下文共同消歧。重复名称的参数必须指定唯一 `target.context`，不能仅靠同名字段的某个共享祖先；context 来自 fieldset legend 或显式 group/radiogroup/row 的可访问名称，不接受站点选择器。参数题仍可能作出语义错误选择，UI 断言与独立 oracle 负责检出。
 
 ## 观察成本与真实性
 
@@ -68,8 +68,43 @@ S1 在一条 top-frame 消息内同步采集 snapshot、view、事实、断言�
 
 `not_sent` 的 PAGE_CHANGED/STALE_REF 可在 `maxRecoveries` 与独立请求预算内重新观察和决策。导航后的只读采集允许短暂有限重采；动作不因此重放。执行响应丢失为 unknown，服务 gate 保持 poisoned，要求隔离浏览器/bridge 人工接续。确定已返回动作之后的新一轮模型选择仍受基于文档、事实、滚动位置与操作的重复检测控制。wait/无效滚动仍耗步数。
 
-首片不做多 frame 任务、定向容器滚动、虚拟列表探索、完整关系图、select、自由文本生成、canvas/drag 或开放互联网。浏览器工具本身仍保留，不把这些能力自动授予 S1 registry。
+当前不做多 frame 任务、定向容器滚动、虚拟列表探索、完整关系图、多选 select、自由文本生成、canvas/drag 或开放互联网。浏览器工具本身仍保留，不把这些能力自动授予 S1 registry。
 
 ## 证据级别
 
 离线测试证明 schema、参数绑定、预算、超时不重放和确定性验证合同。机械浏览器测试证明三类夹具共用核心与真实扩展执行，以及重载、readonly、模态和截断负例。冻结 SHA 后同三类真实 Jev + 独立 oracle 成功，才证明该批样本上的闭环决策效果；不能据此宣称任意网站泛化。真实验收由独立执行者报告，仓库测试脚本本身不产生该结论。
+
+## 复杂表单 opt-in
+
+宿主同时设置 `JEV_ENABLE_S1=1 JEV_ENABLE_COMPLEX_FORMS=1`，task 增加 `profile: "complex_forms"`。入口额外允许隔离 localhost/127.0.0.1:17431。该 profile 固定使用 `/tmp/jev-complex-forms/live-budget.json`，硬限 **240 次实际发送尝试**，错误也占号，不能用旧路径变量切换账本；中央锁与持久化占号复用既有预算实现。不得删除/更名该账本续费。未显式启用的 task 仍受旧 12 步、30 请求、120 秒、100000 输入 token 上限。
+
+复杂 task 可配置 `maxSteps <= 160`、`maxRequests <= 240`、`timeoutMs <= 1800000`、`maxInputTokens <= 2000000`；默认值仍兼容旧 S1，使用者必须声明实验需要的上限。run 启动前要求剩余账本覆盖 `maxRequests`。默认置信阈值仍为 0.6，没有为复杂实验降低。总时长到达后停止新动作；已发送动作先等到明确返回，传输不确定仍 poison gate。
+
+`select_option` 的 task 值为 option 的原生 value，只绑定当前唯一且启用的 option；`set_checked` 的值为字符串 `"true"`/`"false"`，radio 仅允许设 true。受控输入使用原生 setter 和 input/change，checkbox/radio 使用原生 click；这些是 DOM 合成事件，不保证要求 isTrusted 的站点可用。自定义选单仍由模型选择 activate 操作，核心没有网站流程。
+
+仅 complex_forms 对**模型已经选中的操作**且参数域只有一个授权值时直接绑定，省去第二次无歧义请求；多个值仍发独立参数题。此规则不替模型选择字段，也不自动填写剩余字段。旧 S1 的两阶段请求数不变。模型 state 只保留一次精简观察；操作选项引用对象 ID 和名称；参数题只包含选中目标及其值域，不重复整页和其它输入。
+
+文件输入示例：
+
+```json
+{"files":{"resume":{"fileId":"synthetic-resume","purpose":"Supplied synthetic PDF","target":{"role":"file","name":"Résumé PDF"}}}}
+```
+
+宿主设置 `JEV_S1_FILES_MANIFEST=/absolute/host-manifest.json`，文件内容为 `{ "synthetic-resume": { "name": "resume.pdf", "mimeType": "application/pdf", "data": "BASE64_BYTES", "sha256": "64_lowercase_hex" } }`。这属于明确宿主授权；task/model 只能给 fileId，不能给路径或字节。启动前及每次执行前检查 ID、大小（最多 10 MB）、规范 base64 与 SHA-256。字节不进入模型请求和执行 trace（仅记录名称、类型、hash）。S1 通过已有 `actSetFiles` 的 File/DataTransfer/change 链路上传，且在同一同步段先检查 document/ref/全部事实；文件实际持久化仍须服务器 oracle 核验。
+
+观察增加 option、checked、file 元信息、可点击中心点与容器上下文。可见但中心点不可达的控件只提供滚入视口，不直接派发。所有操作派发前重新比较完整事实，选项禁用、行上下文、勾选状态、文件状态变化都会拒绝旧请求。宿主元数据授权不等于页面业务成功。
+
+返回 `timings` 使用单调时钟：`totalMs` 从 runner 接收开始到最终 UI 验证；`serviceTotalMs` 额外包含服务校验、预算和 trace；`modelMs` 包含失败模型等待，`navigationMs` 包含建 tab 和导航，`observationMs` / `executionMs` 为浏览器对应调用，`browserMs` 为这些调用总和。settle/retry delay 和本地计算在总时长内。独立 benchmark 必须从服务调用前计时到服务器 oracle 返回，补充 `oracleMs` 和整体端到端时长；构建、启动单独列出，不能从步骤计时推算总时长。
+
+这些能力的原始缺口在 b992949：textTypes 不含 date/number；registry 无 select/check/file；重复字段仅按 dialog 判断；每个操作 criterion 重复完整对象且参数题重发全页。仓库离线及扩展机械测试证明协议与真实派发，不代表真实 Jev 已通过复杂夹具；真实结果由独立验收报告给出。
+
+本地机械复现（先按夹具文档启动 17431）：
+
+```sh
+npm run build
+npm test
+node tests/e2e/jev-s1.mjs
+node tests/e2e/complex-s1.mjs
+```
+
+后两者使用临时 profile、随机 bridge 端口、扩展副本及合成文件 manifest，关闭后清理浏览器目录，输出 `/tmp/*-mechanical-*/` 证据路径。`complex-s1.mjs` 的固定顺序只存在于测试回放，不能作为真实模型决策、速度提升或布局泛化证据；它不调用 Jev、不改中央付费账本，只用 atlas/standard 主样本检查控件可用性。

@@ -104,7 +104,13 @@ function fullName(el: Element): string {
   if (aria?.trim()) return aria.trim()
 
   const labels = (el as HTMLInputElement).labels
-  if (labels?.length) return Array.from(labels).map(label => label.textContent?.trim() ?? '').join(' ')
+  if (labels?.length) return Array.from(labels).map(label => {
+    // Embedded select options and textarea values are control content, not
+    // label text. Keep genuine descriptive text in the wrapping label.
+    const copy = label.cloneNode(true) as Element
+    copy.querySelectorAll('input, select, textarea').forEach(control => control.remove())
+    return copy.textContent?.trim() ?? ''
+  }).join(' ')
 
   const placeholder = el.getAttribute('placeholder')
   if (placeholder?.trim()) return placeholder.trim()
