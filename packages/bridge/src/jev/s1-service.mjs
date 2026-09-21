@@ -56,7 +56,7 @@ export function registerS1(server, { host, gate }) {
     try { const result = await gate.exclusive(() => fn(input, extra)); return { content: [{ type: 'text', text: JSON.stringify(result) }] } }
     catch (e) { return { isError: true, content: [{ type: 'text', text: JSON.stringify({ code: e.code ?? 'S1_ERROR', message: e instanceof RunError ? e.message : 'S1 operation failed.' }) }] } }
   }
-  server.registerTool('jev_run_s1', { description: 'Opt-in isolated S1 experiment. Shared 30-attempt budget. verified means declared UI assertions, not independent oracle or persistence.', inputSchema: taskSchema.shape }, wrap((input, extra) => executeS1Run(input, { host, signal: extra.signal, onUncertain: () => gate.poison() })))
+  server.registerTool('jev_run_s1', { description: 'Opt-in isolated S1 experiment. Shared 30-attempt budget. verified means declared UI assertions, not independent oracle or persistence.', inputSchema: taskSchema }, wrap((input, extra) => executeS1Run(input, { host, signal: extra.signal, onUncertain: () => gate.poison() })))
   // Internal adapter access for offline mechanical tests. Never a model registry
   // escape hatch: S1 only enumerates its static operations.
   server.registerTool('browser_s1', { description: 'Internal isolated S1 adapter (top frame only).', inputSchema: {

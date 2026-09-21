@@ -137,3 +137,25 @@ test('ambiguous execution transport loss poisons the service gate without replay
     await assert.rejects(() => gate.exclusive(async () => {}), { code: 'BUSY' })
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('actual MCP registration rejects unknown task flow fields before any host call', async () => {
+  const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js')
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
+  const { registerS1 } = await import('../packages/bridge/dist/jev/s1-service.mjs')
+  const { createGate } = await import('../packages/bridge/dist/jev/service.mjs')
+  const server = new McpServer({ name: 's1-schema-test', version: '1' }), client = new Client({ name: 's1-schema-test', version: '1' })
+  const old = process.env.JEV_ENABLE_S1; process.env.JEV_ENABLE_S1 = '1'
+  let calls = 0
+  registerS1(server, { host: { invoke: async () => { calls++; throw Error('Must not execute') } }, gate: createGate() })
+  if (old === undefined) delete process.env.JEV_ENABLE_S1; else process.env.JEV_ENABLE_S1 = old
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  try {
+    await Promise.all([server.connect(a), client.connect(b)])
+    for (const bad of [{ ...task(), steps: ['click'] }, { ...task(), verifier: 'return true' }, { ...task(), assertions: [{ id: 'a', scope: { frame: 'top', root: { kind: 'selector', css: 'main' } }, subject: 'scope', read: 'exists', predicate: 'equals', expected: 'true', freshness: 'current' }] }]) {
+      const result = await client.callTool({ name: 'jev_run_s1', arguments: bad })
+      assert.equal(result.isError, true)
+    }
+    assert.equal(calls, 0)
+  } finally { await client.close(); await server.close() }
+})
