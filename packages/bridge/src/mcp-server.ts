@@ -1,3 +1,4 @@
+import { registerS1 } from './jev/s1-service.mjs'
 // MCP server: registers 18 browser_* tools, dispatches each call as a
 // BridgeCommand to the connected extension.
 
@@ -17,6 +18,7 @@ export async function startMcpServer(opts: { host: WsHost; version: string }) {
 
   const gate = createGate()
   registerJev(server, { host: opts.host, gate })
+  registerS1(server, { host: opts.host, gate })
 
   for (const name of Object.keys(Shapes) as ToolKey[]) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

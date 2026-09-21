@@ -1,3 +1,5 @@
+import { handleS1 } from './s1'
+import { documentId } from './document'
 // ISOLATED-world content script — runs in every frame at document_start.
 //
 // Responsibilities:
@@ -106,6 +108,7 @@ function isEnvelope(msg: unknown): msg is CSRequestEnvelope {
 
 async function handle(msg: CSRequestEnvelope): Promise<unknown> {
   switch (msg.op) {
+    case 's1': { await whenReady(); return handleS1(msg.request) }
     case 'snapshot': {
       await whenReady()
       return buildSnapshot({ budget: msg.budget })
@@ -119,7 +122,7 @@ async function handle(msg: CSRequestEnvelope): Promise<unknown> {
     case 'eval_js':         return actEvalJs(msg)
     case 'view': {
       await whenReady()
-      return buildView()
+      return { ...buildView(), documentId }
     }
     case 'wait_for':        return actWaitFor(msg)
     case 'inspect':         return actInspect(msg)

@@ -67,6 +67,9 @@ export function deriveRole(el: Element): string {
   if (explicit) return explicit
   const tag = el.tagName.toLowerCase()
   switch (tag) {
+    case 'main': return 'main'
+    case 'dialog': return 'dialog'
+    case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': return 'heading'
     case 'a':
       return el.hasAttribute('href') ? 'link' : 'generic'
     case 'button':
@@ -88,30 +91,39 @@ export function deriveRole(el: Element): string {
   return 'generic'
 }
 
-export function deriveName(el: Element): string {
+export function deriveName(el: Element, max = 80): string {
+  return truncate(fullName(el), max)
+}
+
+function fullName(el: Element): string {
   const tag = el.tagName.toLowerCase()
 
+  const labelled = el.getAttribute('aria-labelledby')?.trim().split(/\s+/).map(id => el.ownerDocument.getElementById(id)?.textContent?.trim() ?? '').join(' ')
+  if (labelled?.trim()) return labelled.trim()
   const aria = el.getAttribute('aria-label')
-  if (aria?.trim()) return truncate(aria.trim())
+  if (aria?.trim()) return aria.trim()
+
+  const labels = (el as HTMLInputElement).labels
+  if (labels?.length) return Array.from(labels).map(label => label.textContent?.trim() ?? '').join(' ')
 
   const placeholder = el.getAttribute('placeholder')
-  if (placeholder?.trim()) return truncate(placeholder.trim())
+  if (placeholder?.trim()) return placeholder.trim()
 
   const alt = el.getAttribute('alt')
-  if (alt?.trim()) return truncate(alt.trim())
+  if (alt?.trim()) return alt.trim()
 
   const title = el.getAttribute('title')
-  if (title?.trim()) return truncate(title.trim())
+  if (title?.trim()) return title.trim()
 
   // For form fields, fall back to the typed value
   if (tag === 'input' || tag === 'textarea' || tag === 'select') {
     const v = (el as HTMLInputElement).value
-    if (v?.trim()) return truncate(v.trim())
+    if (v?.trim()) return v.trim()
   }
 
   // Text content (for buttons / links / labels)
   const text = (el as HTMLElement).innerText
-  if (text?.trim()) return truncate(text.trim().replace(/\s+/g, ' '))
+  if (text?.trim()) return text.trim().replace(/\s+/g, ' ')
 
   // Last resort: tag + id
   const id = el.id

@@ -124,3 +124,7 @@ Scripts:
 - `npm --workspace browser-use-extension run pack` — zip the extension
 
 隔离复杂页面实验与高层 `jev_run`：见 [J0 实验指南](docs/jev-lab.zh-CN.md)。
+
+### Opt-in S1 protocol experiment
+
+S1 adds document-bound observations, a static operation registry, target-bound parameter choices, and scoped UI assertions while retaining J0/J1. See [S1 protocol and isolated test instructions](docs/s1-protocol.zh-CN.md). Mechanical replay is not live Jev or generalization evidence.

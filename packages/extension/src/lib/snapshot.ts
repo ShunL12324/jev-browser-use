@@ -31,7 +31,7 @@ export async function snapshot(tabId: number, params: SnapshotParams = {}): Prom
   const frames = await getAllFrames(tabId)
   if (frames.length === 0) {
     log.warn(`no frames for tab=${tabId}`)
-    return { ok: true, url: '', title: '', interactables: [], total_interactables: 0 }
+    return { ok: true, url: '', title: '', interactables: [], total_interactables: 0, frames: [], coverage: { status: 'unknown', reasons: ['no_frames'] } }
   }
 
   // Per-frame budget = limit. We could divide by frame count to be miserly,
@@ -45,6 +45,7 @@ export async function snapshot(tabId: number, params: SnapshotParams = {}): Prom
     )
   )
 
+  const frameCoverage: Array<Record<string, unknown>> = results.map((r, i) => r.status === 'fulfilled' ? { frameId: frames[i]!.frameId, url: r.value.data.url, documentId: r.value.data.documentId, ...r.value.data.coverage, failed: false } : { frameId: frames[i]!.frameId, failed: true })
   const collected: Interactable[] = []
   let topUrl = ''
   let topTitle = ''
@@ -92,5 +93,6 @@ export async function snapshot(tabId: number, params: SnapshotParams = {}): Prom
     limit
   })
 
-  return { ok: true, url: topUrl, title: topTitle, interactables, total_interactables: total }
+  const partial = frameCoverage.some(f => f.failed || f.truncated) || total > limit
+  return { ok: true, url: topUrl, title: topTitle, interactables, total_interactables: total, frames: frameCoverage, coverage: { status: partial ? 'partial' : 'complete_in_scope', scope: 'interactive_visible_dom', returned: interactables.length, matched: frameCoverage.some(f => f.failed) ? undefined : frameCoverage.reduce((n, f) => n + Number(f.matched), 0), reasons: [...(frameCoverage.some(f => f.failed) ? ['frame_failed'] : []), ...(frameCoverage.some(f => f.truncated) || total > limit ? ['budget_cut'] : [])] } }
 }

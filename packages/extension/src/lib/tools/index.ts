@@ -1,3 +1,4 @@
+import { sendToTop } from '../tab-message'
 // Single dispatch surface for all browser tools.
 
 import { snapshot } from '../snapshot'
@@ -66,6 +67,7 @@ async function dispatch<N extends ToolName>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const p = params as any
   switch (name) {
+    case 's1': return { ok: true, ...await sendToTop(tabId, { op: 's1', request: p }) as object } as ToolResultByName[N]
     case 'snapshot':         return (await snapshot(tabId, p)) as ToolResultByName[N]
     case 'view':             return (await view(tabId, p)) as ToolResultByName[N]
     case 'navigate':         return (await navigate(tabId, p)) as ToolResultByName[N]

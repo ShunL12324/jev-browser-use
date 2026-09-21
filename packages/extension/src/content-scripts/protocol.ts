@@ -13,6 +13,7 @@ import type { Interactable, ActionEffects } from '../shared/protocol'
 export type { ActionEffects }
 
 export type CSRequest =
+  | { op: 's1'; request: import('../shared/s1').S1Request }
   | { op: 'snapshot'; budget?: number }
   | { op: 'click'; ref: string; button?: 'left' | 'right' | 'middle'; double?: boolean }
   | { op: 'type'; ref: string; text: string; clear?: boolean; submit?: boolean }
@@ -52,6 +53,8 @@ export type CSResponse<T = unknown> =
 // ── Per-op response data shapes ────────────────────────────────────────
 
 export interface SnapshotPayload {
+  documentId: string
+  coverage: { matched: number; returned: number; truncated: boolean }
   url: string
   title: string
   interactables: Interactable[]
@@ -107,6 +110,7 @@ export interface SetFilesPayload {
 }
 
 export interface ViewPayload {
+  documentId?: string
   url: string
   title: string
   actions: number

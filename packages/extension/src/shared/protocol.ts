@@ -29,6 +29,8 @@ export interface SnapshotParams {
   limit?: number
 }
 export interface SnapshotResult {
+  frames?: Array<Record<string, unknown>>
+  coverage?: Record<string, unknown>
   ok: true
   url: string
   title: string
@@ -319,6 +321,7 @@ export interface BatchResult {
 // ── Tool registry types ───────────────────────────────────────────────
 
 export type ToolName =
+  | 's1'
   | 'snapshot'
   | 'view'
   | 'navigate'
@@ -339,6 +342,7 @@ export type ToolName =
   | 'batch'
 
 export interface ToolParamsByName {
+  s1: import('./s1').S1Request
   snapshot: SnapshotParams
   view: ViewParams
   navigate: NavigateParams
@@ -360,6 +364,7 @@ export interface ToolParamsByName {
 }
 
 export interface ToolResultByName {
+  s1: import('./s1').S1Result
   snapshot: SnapshotResult
   view: ViewResult
   navigate: NavigateResult

@@ -1,3 +1,4 @@
+import { documentId } from './document'
 // Frame-local snapshot builder.
 //
 // Each frame's content script walks its own document (piercing shadow DOM
@@ -63,6 +64,8 @@ export function buildSnapshot(opts: { budget?: number } = {}): SnapshotPayload {
   }
 
   return {
+    documentId,
+    coverage: { matched: candidates.length, returned: interactables.length, truncated: candidates.length > limit },
     url: location.href,
     title: document.title,
     interactables

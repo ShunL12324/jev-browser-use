@@ -1,0 +1,4 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Project workspace</title>
+<style>body{font:18px sans-serif;margin:35px}main{display:grid;grid-template-columns:250px 1fr;gap:50px}a{display:block;padding:16px}</style>
+<h1>Project workspace</h1><main><nav aria-label="Projects"><a href="#atlas" data-project="Atlas">Open project Atlas</a><a href="#polaris" data-project="Polaris">Open project Polaris</a><a href="#vega" data-project="Vega">Open project Vega</a></nav><section role="region" aria-label="Project details"><h2>Select a project</h2><p class="status">No project selected</p></section></main>
+<script>for(const a of document.querySelectorAll('a'))a.onclick=()=>{document.querySelector('h2').textContent='Project '+a.dataset.project;document.querySelector('.status').textContent=a.dataset.project==='Polaris'?'Status: Ready':'Status: Draft';fetch('opened',{method:'POST',body:a.dataset.project})}</script></html>

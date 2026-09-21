@@ -136,6 +136,7 @@ function q(s: string): string {
 
 function trimText(t: string | null | undefined): string {
   const s = (t || '').trim().replace(/\s+/g, ' ')
+  if (s.length > 300) textWasTruncated = true
   return s.length > 300 ? s.slice(0, 300) + '…' : s
 }
 
@@ -322,7 +323,10 @@ function walk(state: WalkState, el: Element, depth: number): void {
   for (const child of childrenOf(el)) walk(state, child, childDepth)
 }
 
+let textWasTruncated = false
+
 export function buildView(): ViewPayload {
+  textWasTruncated = false
   purgeDead()
   styleCache = new Map()
   try {
@@ -333,7 +337,7 @@ export function buildView(): ViewPayload {
       title: document.title,
       actions: state.actions,
       texts: state.texts,
-      truncated: false,
+      truncated: textWasTruncated,
       content: state.lines.join('\n')
     }
   } finally {

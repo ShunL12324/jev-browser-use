@@ -145,12 +145,12 @@ export function decide(task, prepared, response, tabId) {
   return { status: 'action', name: action.startsWith('scroll_') ? 'scroll' : action === 'wait' ? 'wait_for' : action, args, target, valueId }
 }
 
-export async function askJev(payload, { signal, apiKey = process.env.TYPESAFE_API_KEY, baseUrl = process.env.TYPESAFE_BASE_URL ?? 'https://api.typesafe.ai', model = process.env.TYPESAFE_DEFAULT_MODEL ?? 'jev-1.13.0', ledgerPath = process.env.JEV_BUDGET_PATH ?? DEFAULT_LEDGER, requestMetadata = { source: 'standalone' }, onRequest = () => {} } = {}) {
+export async function askJev(payload, { signal, apiKey = process.env.TYPESAFE_API_KEY, baseUrl = process.env.TYPESAFE_BASE_URL ?? 'https://api.typesafe.ai', model = process.env.TYPESAFE_DEFAULT_MODEL ?? 'jev-1.13.0', ledgerPath = process.env.JEV_BUDGET_PATH ?? DEFAULT_LEDGER, requestMetadata = { source: 'standalone' }, requestLimit, onRequest = () => {} } = {}) {
   if (!apiKey) fail('NO_KEY', 'TYPESAFE_API_KEY is missing; start a new shell after saving it.')
   const url = new URL('v1/systemone', baseUrl.replace(/\/?$/, '/'))
   if (url.protocol !== 'https:') fail('API_URL', 'The authenticated Jev endpoint must use HTTPS.')
   signal?.throwIfAborted()
-  const sequence = reserveRequest(ledgerPath, requestMetadata)
+  const sequence = reserveRequest(ledgerPath, requestMetadata, requestLimit)
   onRequest(sequence)
   const requestSignal = AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(20000)])
   let stage = 'fetch', httpStatus, usage
