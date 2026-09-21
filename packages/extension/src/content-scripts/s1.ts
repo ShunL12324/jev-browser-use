@@ -5,7 +5,7 @@ import { buildSnapshot } from './snapshot'
 import { buildView } from './view'
 import { deriveName, deriveRole, isDisabled, getValue } from './interactive'
 import { getBounds, isVisible } from './visibility'
-import { findByRef } from './refs'
+import { findByRef, getOrAssignRef } from './refs'
 import { setNativeValue, dispatchInput, dispatchChange } from './events'
 import type { Assertion, Locator, S1Request, S1Result } from '../shared/s1'
 
@@ -18,7 +18,7 @@ export function facts(el: Element, active = dialogs()) {
   const name = deriveName(el, 10000)
   const context: string[] = []
   for (let parent = el.parentElement; parent; parent = parent.parentElement) {
-    if (parent.matches('fieldset, [role="group"], [role="radiogroup"], [role="row"], section[aria-label], section[aria-labelledby]')) {
+    if (parent.matches('fieldset, [role="group"], [role="radiogroup"], [role="row"], [role="listbox"], section[aria-label], section[aria-labelledby]')) {
       const label = parent instanceof HTMLFieldSetElement ? parent.querySelector(':scope > legend')?.textContent?.trim() : deriveName(parent, 10000)
       if (label) context.unshift(label)
     }
@@ -35,6 +35,14 @@ export function facts(el: Element, active = dialogs()) {
     return field.willValidate && field.validity && !field.validity.valid
   }).length : null
 
+  const ariaBoolean = (name: string) => el.getAttribute(name) === 'true' ? true : el.getAttribute(name) === 'false' ? false : null
+  const popup = el.getAttribute('aria-haspopup')
+  const listbox = el.parentElement?.closest('[role="listbox"]')
+  const relationTarget = (target: Element) => ({ ref: getOrAssignRef(target).ref, role: deriveRole(target), name: deriveName(target, 200), nameTruncated: deriveName(target, 10000).length > 200, visible: visible(target) })
+  const controlsIds = el.getAttribute('aria-controls')?.trim().split(/\s+/).filter(Boolean) ?? []
+  const controlsTargets = controlsIds.length <= 20 ? controlsIds.map(id => Array.from(document.querySelectorAll('[id]')).filter(target => target.id === id)) : []
+  const controlsKnown = controlsIds.length > 0 && controlsIds.length <= 20 && controlsTargets.every(matches => matches.length === 1)
+  const controls = { source: 'aria-controls', status: !controlsIds.length ? 'absent' : controlsKnown ? 'known' : 'unknown', targets: controlsKnown ? controlsTargets.map(matches => relationTarget(matches[0]!)) : [] }
   const ids = el.getAttribute('aria-labelledby')?.trim().split(/\s+/) ?? []
   const unresolvedLabel = ids.length > 20 || ids.some(id => !document.getElementById(id))
   return {
@@ -42,6 +50,9 @@ export function facts(el: Element, active = dialogs()) {
     disabled: isDisabled(el) || el.matches(':disabled'), readonly: input || textarea ? el.readOnly : false,
     inert: !!el.closest('[inert]'), modalBlocked: active.length > 0 && !dialog,
     dialog: dialog ? deriveName(dialog, 200) : null,
+    expanded: ariaBoolean('aria-expanded'), selected: ariaBoolean('aria-selected'),
+    hasPopup: popup && ['false', 'true', 'menu', 'listbox', 'tree', 'grid', 'dialog'].includes(popup) ? popup : null,
+    listbox: listbox ? { ...relationTarget(listbox), source: 'dom_ancestor' } : null, controls,
     required: control?.required ?? null,
     valid: control?.willValidate ? control.validity.valid : null,
     buttonType: button?.type ?? null, formInvalidCount,
