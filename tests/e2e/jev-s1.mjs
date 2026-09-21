@@ -97,9 +97,16 @@ try {
   assert.ok(ambiguous.objects.filter(o => o.name === 'Duplicate action').every(o => o.ambiguous))
   // Mechanical test fixture only. No page evaluation exists in the S1 runner.
   await page.evaluate(() => {
-    document.body.innerHTML = `<main><fieldset><legend>Row 1</legend><label>Amount<input type="number"></label></fieldset><fieldset><legend>Row 2</legend><label>Amount<input type="number"></label></fieldset><label>Date<input type="date"></label><label>Location<select><option value="">Choose</option><option value="ca">Canada</option></select></label><label>Consent<input type="checkbox"></label><label>Remote<input type="radio" name="mode"></label><label>PDF<input type="file"></label><div role="option" tabindex="0">Custom option</div><output id="events"></output></main>`
+    document.body.innerHTML = `<main><form><fieldset><legend>Row 1</legend><label>Amount<input type="number" required></label></fieldset><fieldset><legend>Row 2</legend><label>Amount<input type="number" required></label></fieldset><label>Date<input type="date" required></label><label>Location<select required><option value="">Choose</option><option value="ca">Canada</option></select></label><label>Consent<input type="checkbox" required></label><label>Remote<input type="radio" name="mode"></label><label>PDF<input type="file" required></label><div role="option" tabindex="0">Custom option</div><output id="events"></output></form></main>`
+    document.body.dataset.invalidEvents = "0"
+    document.addEventListener("invalid", () => document.body.dataset.invalidEvents = String(Number(document.body.dataset.invalidEvents) + 1), true)
     for (const el of document.querySelectorAll('input, select')) el.addEventListener('change', () => document.querySelector('#events').textContent += el.type + ';')
   })
+  const nativeFacts = await observe()
+  const emptyAmount = nativeFacts.objects.find(o => o.facts.name === 'Amount')
+  assert.equal(emptyAmount.facts.required, true); assert.equal(emptyAmount.facts.valid, false)
+  assert.equal(emptyAmount.facts.formInvalidCount, 6)
+  assert.equal(await page.locator('body').getAttribute('data-invalid-events'), '0')
   const controls = validateS1Task({ goal: 'Mechanical control checks', startUrl: task.startUrl, allowedOrigins: [origin], values: {
     amount: { text: '42', purpose: 'Second row amount', target: { role: 'textbox', name: 'Amount', context: 'Row 2' } },
     date: { text: '2027-02-15', purpose: 'Date', target: { role: 'textbox', name: 'Date' } },
@@ -127,10 +134,30 @@ try {
   assert.ok(await page.locator('input[type=radio]').isChecked())
   const uploaded = await page.locator('input[type=file]').evaluate(async el => Array.from(new Uint8Array(await el.files[0].arrayBuffer())))
   assert.equal(createHash('sha256').update(Buffer.from(uploaded)).digest('hex'), createHash('sha256').update(fileBytes).digest('hex'))
+  const completedFacts = await observe()
+  const amount2 = completedFacts.objects.find(o => o.facts.context.includes('Row 2'))
+  assert.equal(amount2.facts.valid, true); assert.equal(amount2.facts.formInvalidCount, 1)
+  assert.equal(await page.locator('body').getAttribute('data-invalid-events'), '0')
   const staleCheck = { ...(await observe()) }
   const checkbox = staleCheck.objects.find(o => o.facts.nativeCheck)
   await page.locator('input[type=checkbox]').uncheck()
   assert.equal((await browser.call('s1', { tabId, action: 'execute', operation: 'set_checked', documentId: staleCheck.documentId, url: staleCheck.url, allowedOrigins: [origin], ref: checkbox.ref, expected: checkbox.facts, checked: true })).code, 'STALE_REF')
+  await page.evaluate(() => {
+    const extra = document.createElement('form')
+    extra.innerHTML = '<label>Other email<input type="email" value="bad"></label><label>Disabled required<input required disabled></label><label>Readonly required<input required readonly></label><button>Other submit</button>'
+    document.body.append(extra)
+  })
+  const separated = await observe()
+  assert.equal(separated.objects.find(o => o.facts.name === 'Other email').facts.formInvalidCount, 1)
+  assert.equal(separated.objects.find(o => o.facts.name === 'Other submit').facts.formInvalidCount, 1)
+  assert.equal(separated.objects.find(o => o.facts.name === 'Date').facts.formInvalidCount, 2)
+  assert.equal(separated.objects.find(o => o.facts.name === 'Disabled required').facts.valid, null)
+  assert.equal(separated.objects.find(o => o.facts.name === 'Readonly required').facts.valid, null)
+  const dateBeforeValidityChange = separated.objects.find(o => o.facts.name === 'Date')
+  await page.locator('input[type=number]').nth(1).evaluate(el => el.setCustomValidity('Asynchronous constraint'))
+  assert.equal((await browser.call('s1', { tabId, action: 'execute', operation: 'replace_text', documentId: separated.documentId, url: separated.url, allowedOrigins: [origin], ref: dateBeforeValidityChange.ref, expected: dateBeforeValidityChange.facts, text: '2027-02-16' })).code, 'STALE_REF')
+  assert.equal(await page.locator('body').getAttribute('data-invalid-events'), '0')
+  console.log(JSON.stringify({ event: 's1_form_validity_pass', cases: ['readonly_collection_no_invalid_events', 'separate_forms', 'optional_format_invalid_counted', 'disabled_readonly_excluded', 'async_validity_stale'], liveJev: false }))
   console.log(JSON.stringify({ event: 's1_form_controls_pass', cases: ['container_binding', 'number', 'date', 'native_select', 'checkbox', 'radio', 'custom_option', 'real_file_hash', 'unauthorized_file', 'stale_checked_state'], liveJev: false }))
   console.log(JSON.stringify({ event: 's1_browser_negative_pass', cases: ['same_url_document', 'readonly', 'modal_background', 'parameter_stale', 'coverage_cut', 'scope_root_boundary', 'overlay', 'text_cut', 'duplicate_names'], liveJev: false }))
 } finally {

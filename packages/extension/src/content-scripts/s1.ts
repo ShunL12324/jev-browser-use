@@ -25,6 +25,15 @@ export function facts(el: Element, active = dialogs()) {
   }
   const rect = el.getBoundingClientRect(), hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
   const select = el instanceof HTMLSelectElement
+  const control = input || textarea || select ? el as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement : null
+  const button = el instanceof HTMLButtonElement ? el : null
+  const form = control?.form ?? button?.form
+  // Native constraint facts are read-only; checkValidity() would dispatch
+  // invalid events, so only inspect validity.valid on participating controls.
+  const formInvalidCount = form ? Array.from(form.elements).filter(element => {
+    const field = element as HTMLInputElement
+    return field.willValidate && field.validity && !field.validity.valid
+  }).length : null
 
   const ids = el.getAttribute('aria-labelledby')?.trim().split(/\s+/) ?? []
   const unresolvedLabel = ids.length > 20 || ids.some(id => !document.getElementById(id))
@@ -33,6 +42,9 @@ export function facts(el: Element, active = dialogs()) {
     disabled: isDisabled(el) || el.matches(':disabled'), readonly: input || textarea ? el.readOnly : false,
     inert: !!el.closest('[inert]'), modalBlocked: active.length > 0 && !dialog,
     dialog: dialog ? deriveName(dialog, 200) : null,
+    required: control?.required ?? null,
+    valid: control?.willValidate ? control.validity.valid : null,
+    buttonType: button?.type ?? null, formInvalidCount,
     context, contextTruncated: context.some(c => c.length > 200) || context.length > 12,
     centerReachable: !!hit && (hit === el || el.contains(hit)),
     checked: input && ['checkbox', 'radio'].includes(el.type) ? el.checked : null,
