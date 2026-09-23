@@ -100,6 +100,8 @@ export function tier(op, e, page) {
   if (op === 'PRESS_ENTER') return e?.form && irreversible(page.elements.find(x => x.submit && x.form === e.form) ?? { ...e, submit: true, name: '', editable: false }, page) ? 'R3' : 'R2'
   // Dismissing an overlay (close / no thanks / not now) changes no data.
   if (/^(close|dismiss|no,? thanks|not now|maybe later|skip|×|✕|x)$/i.test(e.name.trim())) return 'R0'
+  // Moving a picker or carousel view (next/previous month, year, slide) changes no data.
+  if (/^(next|previous|prev)\s+(month|year|week|day|slide|image|photo)$/i.test(e.name.trim())) return 'R0'
   if (e.editable || e.tag === 'summary' || e.expanded !== null && e.expanded !== undefined || e.hasPopup || e.role === 'tab') return 'R0'
   if (['option', 'menuitemradio', 'menuitemcheckbox', 'checkbox', 'radio', 'switch'].includes(e.role) || ['checkbox', 'radio'].includes(e.inputType)) return 'R1'
   if (e.href) { try { const u = new URL(e.href), p = new URL(page.url); return u.origin + u.pathname + u.search === p.origin + p.pathname + p.search && u.hash ? 'R0' : 'R2' } catch { return 'R2' } }

@@ -15,6 +15,9 @@ const BIND = 'Choose the listed field that should receive exactly this supplied 
 
 const FIELD = 'Does the goal itself state what this field should be set to? If so choose that exact value (for text: the exact span of the goal; for a checkbox or radio: checked). Choose keep if the goal does not specify this field or its current value already satisfies the goal.'
 
+// Short field label for binding criteria (state.elements has the full facts).
+const field = e => `"${e.name}"` + (e.context?.length ? ` in ${e.context.join(' › ')}` : '') + (e.value ? ` = ${JSON.stringify(String(e.value).slice(0, 60))}` : '') + (e.checked ? ' (checked)' : '')
+
 const compact = e => ({ id: e.ref, role: e.role, name: e.name, ...(e.value ? { value: String(e.value).slice(0, 120) } : {}), ...(e.context?.length ? { context: e.context.join(' › ') } : {}), ...(e.item ? { item: e.item } : {}),
   ...(e.checked !== null && e.checked !== undefined ? { checked: e.checked } : {}), ...(e.expanded !== null && e.expanded !== undefined ? { expanded: e.expanded } : {}), ...(e.selected ? { selected: true } : {}),
   ...(e.disabled ? { disabled: true } : {}), ...(e.required ? { required: true, valid: e.valid } : {}), ...(!e.inView ? { offscreen: true } : {}), ...(e.tag === 'select' ? { options: e.options.length > 40 ? `${e.options.length} options` : e.options.map(o => o.label) } : {}), ...(e.inputType === 'file' ? { files: e.files ?? 0 } : {}) })
@@ -42,7 +45,7 @@ export function build(page, task, history) {
   for (const op of ['CLICK', 'TYPE_TEXT', 'SELECT', 'PRESS_ENTER']) {
     if (!ops[op]) continue
     const byRef = Object.fromEntries(page.elements.map(e => [e.ref, e]))
-    questions[`target_${op}`] = { type: 'choice', instructions: `${RULES}\n${TARGET} Operation: ${op}.`, criteria: Object.fromEntries(Object.entries(targets[op]).map(([id, t]) => [id, op === 'SELECT' ? `${describe(byRef[t.ref])} → option "${t.label}"` : describe(byRef[t.ref]) + (submitters.has(t.ref) ? ` — submits the form with unsubmitted text in ${submitters.get(t.ref).join(', ')}` : '')])) }
+    questions[`target_${op}`] = { type: 'choice', instructions: op === 'CLICK' ? `${RULES}\n${TARGET} Operation: ${op}.` : `${TARGET} Operation: ${op}.`, criteria: Object.fromEntries(Object.entries(targets[op]).map(([id, t]) => [id, op === 'SELECT' ? `${describe(byRef[t.ref])} → option "${t.label}"` : describe(byRef[t.ref]) + (submitters.has(t.ref) ? ` — submits the form with unsubmitted text in ${submitters.get(t.ref).join(', ')}` : '')])) }
   }
   // Speculative text head: when typing is offered, Jev may pick the literal
   // text from spans of the goal (pre-parsed value extraction); otherwise the
@@ -61,7 +64,7 @@ export function build(page, task, history) {
     binds[q] = { valueId: id, candidates }
     const shown = input.fileId ? { fileId: input.fileId } : { value: input.secret ? '‹secret›' : input.value }
     questions[q] = { type: 'choice', instructions: `${BIND} Supplied input: ${JSON.stringify({ purpose: input.purpose, ...shown })}.`,
-      criteria: { ...Object.fromEntries(Object.keys(candidates).map(ref => [ref, describe(page.elements.find(e => e.ref === ref))])), not_now: 'Do not apply this input now.' } }
+      criteria: { ...Object.fromEntries(Object.keys(candidates).map(ref => [ref, field(page.elements.find(e => e.ref === ref))])), not_now: 'Do not apply this input now.' } }
   }
   for (const [id, b] of Object.entries(binds)) inputs[b.valueId].fieldsOnThisPage = Object.keys(b.candidates).length
   // Field heads: visible fields no supplied input could fill get their own

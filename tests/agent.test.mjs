@@ -304,6 +304,8 @@ test('a covered target is reported to the model instead of retried blindly', asy
 test('dismiss controls are R0 and goal spans keep emails, URLs and phone numbers', async () => {
   const { goalSpans } = await import('../packages/bridge/src/agent/jev.mjs')
   assert.equal(tier('CLICK', button('No thanks'), page([])), 'R0')
+  assert.equal(tier('CLICK', button('Next month'), page([])), 'R0')
+  assert.equal(tier('CLICK', button('Next'), page([])), 'R2')
   const spans = goalSpans('Set recovery email to sam@example.test, phone +1 617-555-0143, site https://x.test/a')
   for (const s of ['sam@example.test', '+1 617-555-0143', 'https://x.test/a']) assert.ok(spans.includes(s), s)
 })
