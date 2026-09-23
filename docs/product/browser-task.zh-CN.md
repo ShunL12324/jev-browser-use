@@ -96,3 +96,31 @@ node scripts/jev/calibration.mjs [--sha=<prefix>]      # 从 trace 汇总门槛�
 ```
 
 以上都使用临时 profile 的 Chromium 与随机端口，不连接用户浏览器。机械回放中的应答器含夹具知识，只在测试中存在，只能证明管道；真实效果以独立验收者在冻结 SHA 上的运行为准。
+
+## 开发期校准（P1a，开发者自测，非独立验收）
+
+数据：`/tmp/jev-product/traces` 中 48 个开发期任务 trace（代码在多次迭代中变化，包括失败、网络超时与取消的运行；`node scripts/jev/calibration.mjs` 可复现），产品账本截至提交共 333 次 Jev 请求（含连接超时占号）。
+
+| 头 | 被接受数 | 概率分布 | 正确性证据 |
+| --- | --- | --- | --- |
+| `bind_`（供值绑定，门槛 0.6） | 369 | 368 个 ≥0.9，1 个 0.8–0.9，0.6–0.8 无 | complex-forms 无声明目标的真实运行 6 次通过（atlas/standard ×3、birch、atlas/alternate、T33 harness 一次），服务器 oracle 均 32/32 + PDF |
+| `field_`（目标文字规定的字段，门槛 0.7） | 47 | 全部 ≥0.9 | 人工逐条核对：Destination=Lisbon、Stay category=Design、Free cancellation 勾选、Where from?=Zurich、Where to?=London、Departure=November 20 2026，没有错填；complex-forms 中未规定的 radio 均回答 keep |
+
+操作头（无绑定的周期，p = min(操作, 目标)）：
+
+| 操作 | p | 执行 | R0 回退 | 交给调用方 | DONE |
+| --- | --- | --- | --- | --- | --- |
+| CLICK | ≥0.9 | 53 | 0 | 0 | – |
+| CLICK | 0.8–0.9 | 40 | 0 | 0 | – |
+| CLICK | 0.6–0.8 | 31 | 0 | 0 | – |
+| CLICK | 0.4–0.6 | 12 | 1 | 10 | – |
+| CLICK | <0.4 | 0 | 1 | 6 | – |
+| WAIT | 0.4–≥0.9 | 19 | 0 | 2 | – |
+| DONE | ≥0.9 | – | – | – | 18 |
+
+观察到的错误执行与处置：
+- p=0.50 的 SELECT 把已填好的 Visa category 改错。处置：已被 input/field 填好的字段不再作为 SELECT/TYPE_TEXT/CLICK 目标（结构性排除，不靠门槛）。
+- Google Flights 一次在 0.57（操作 0.93 × 目标 0.57）点击 Search，早于把 Round trip 改为 One way，任务失败。R2 的 0.5 + 1.3 倍边际允许了这次错误；另一次同任务在同一代码族下通过（结果页 tfs 含 2026-11-20、ZRH→London，agentMs 9.8 s，12 次请求，未经 harness 判分）。该门槛需在独立运行数据上复核，不能据少量样本放宽。
+- forma 旅行任务：只加目标规则时模型在“View Casa Flora”与“Find stays”间 0.54/0.45 分散，被 R2 门槛拦下；加入“未提交表单”宿主事实与目标题完整规则后连续 4 次通过（agentMs 约 2.1–2.8 s，4–5 次请求）。
+
+结论：当前数字作为路由默认值保留；bind/field 门槛下没有观察到错误执行，操作头 0.4–0.6 区间有 1 次已知错误执行，需要独立验收数据再定。开发期外部网络（WSL 到 api.typesafe.ai、Wikipedia、Google）多次整段超时，Wikipedia 只完成过 1 次（3.8 s，3 次请求），相关失败不是模型判断造成，但同样计入账本。
