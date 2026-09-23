@@ -88,8 +88,19 @@ export function invalidAnswers(questions, answers) {
   for (const [id, q] of Object.entries(questions)) try { validateAnswers({ [id]: q }, { [id]: answers?.[id] }) } catch { bad.add(id) }
   return bad
 }
+// Jev occasionally reports a choice a rounding step below the maximum
+// (e.g. 0.38 vs 0.39). Consume the argmax instead of rejecting the answer.
+export function normalize(questions, answers) {
+  for (const [id, q] of Object.entries(questions)) {
+    const a = answers?.[id]
+    if (q.type !== 'choice' || !a?.probabilities || typeof a.probabilities !== 'object') continue
+    const [best, max] = Object.entries(a.probabilities).reduce((m, e) => e[1] > m[1] ? e : m, [null, -1])
+    if (best !== null && Object.hasOwn(q.criteria, best) && a.probabilities[a.choice] < max && a.probabilities[a.choice] >= max - 0.02) a.choice = best
+  }
+  return answers
+}
 // Transport-level validator: only the operation head is mandatory.
-export const lenient = (questions, answers) => validateAnswers({ operation: questions.operation }, { operation: answers?.operation })
+export const lenient = (questions, answers) => validateAnswers({ operation: questions.operation }, { operation: normalize(questions, answers)?.operation })
 
 // Candidate literal texts from the goal: quoted strings and word n-grams (≤6
 // words) that neither start nor end with a function word. Deterministic; the

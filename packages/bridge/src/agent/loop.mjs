@@ -2,7 +2,7 @@
 // execution → event-driven settle. Executed actions are never replayed.
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
-import { build, invalidAnswers } from './jev.mjs'
+import { build, invalidAnswers, normalize } from './jev.mjs'
 import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, norm } from './space.mjs'
 
 const now = () => performance.now()
@@ -11,6 +11,7 @@ const originOf = url => { try { return new URL(url).origin } catch { return null
 // target's identity (role, name, context, dialog) are unchanged. Unrelated
 // list updates elsewhere do not invalidate it; the executor still checks the
 // target's own facts before acting.
+const popups = page => page.elements.filter(e => e.role === 'dialog' || e.role === 'option' || e.role === 'listbox' || e.role === 'menu').map(e => `${e.role}:${e.name}`)
 const sameTarget = (judged, page, ref) => { const a = judged.elements.find(e => e.ref === ref), b = page.elements.find(e => e.ref === ref); return !!a && !!b && judged.documentId === page.documentId && judged.url === page.url && JSON.stringify([a.role, a.name, a.context, a.dialog]) === JSON.stringify([b.role, b.name, b.context, b.dialog]) }
 
 export async function runTask(task, { call, ask, handoff, emit = () => {}, signal, files = () => { throw new RunError('FILE_UNAUTHORIZED', 'No file manifest.') } }) {
@@ -143,7 +144,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       m.jevRequests++
       const response = await timed('jevMs', () => ask(built.payload, { signal }))
       if (Number.isFinite(response.usage?.input_tokens)) m.jevInputTokens += response.usage.input_tokens; else m.jevUnknownUsage++
-      const answers = response.answers, invalid = invalidAnswers(built.payload.questions, answers)
+      const answers = normalize(built.payload.questions, response.answers), invalid = invalidAnswers(built.payload.questions, answers)
       if (invalid.has('operation')) throw new RunError('BAD_ANSWER', 'Invalid operation answer; nothing executed.')
       if (invalid.size) emit({ event: 'invalid_answers', ids: [...invalid] })
       // Bindings first: each supplied input had its own question.
@@ -177,6 +178,10 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
           if (!c || !el) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'not_eligible' }); stopped = true; break }
           const r = await exec(c.op, el, c.op === 'upload' ? { fileId: task.inputs[b.valueId].fileId } : { text: c.text, value: c.value, checked: c.checked }, b.valueId, i < bindings.length - 1)
           if (!r.sent || r.postcondition === 'unmet' || r.navigated) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: r.sent ? r.postcondition === 'unmet' ? 'postcondition_unmet' : 'navigated' : 'not_sent' }); stopped = true; break }
+          // A new dialog or newly visible options mean the page now expects a
+          // choice (autocomplete, picker); later values wait for a new decision.
+          const popup = popups(page).filter(x => !popups(judged).includes(x))
+          if (popup.length) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'popup_opened', popup: popup.slice(0, 3) }); stopped = true; break }
         }
         // The operation head was asked for the step after this cycle's
         // inputs. Consume it only when every judged input settled cleanly on

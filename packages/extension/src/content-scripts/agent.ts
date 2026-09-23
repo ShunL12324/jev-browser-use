@@ -83,7 +83,9 @@ function key(el: HTMLElement, name: string) {
 let navigating = false
 addEventListener('beforeunload', () => { navigating = true })
 function execute(q: Req) {
-  if (q.documentId !== documentId || q.url !== location.href) return reject('PAGE_CHANGED')
+  // Same-document URL updates (history API) keep the judgment usable; the
+  // target guard below still protects the element itself.
+  if (q.documentId !== documentId || new URL(q.url as string).origin !== location.origin) return reject('PAGE_CHANGED')
   const op = q.op as string
   let el: HTMLElement | null = null
   if (q.ref) {
@@ -130,22 +132,27 @@ function execute(q: Req) {
   } finally { nav?.removeEventListener('navigate', onNavigate) }
   return { ok: true, execution: 'returned', crossDocument }
 }
-// Up to two frames or 50 ms; a typed combobox waits up to 200 ms for options.
-// Timers bound the wait because background tabs may not run animation frames.
+// Up to two frames or 50 ms. After typing into a combobox, wait until its
+// visible options exist and stop changing (async suggestions), at most 800 ms.
+// Timers bound the waits because background tabs may not run animation frames.
 function settle(q: Req) {
   return new Promise(resolve => {
-    const el = q.ref ? findByRef(q.ref as string) : null
-    const combobox = q.op === 'type' && el?.getAttribute('role') === 'combobox'
+    const start = performance.now(), el = q.ref ? findByRef(q.ref as string) : null
+    const combobox = q.op === 'type' && (el?.getAttribute('role') === 'combobox' || el?.hasAttribute('aria-autocomplete') || el?.hasAttribute('list'))
     let frames = 0, done = false
     const finish = () => { if (!done) { done = true; resolve({ ok: true, navigating, ms: Math.round(performance.now() - start) }) } }
-    const start = performance.now()
-    // quick: between bindings of one batch, where the next re-check follows.
-    setTimeout(finish, q.op === 'wait' ? 300 : combobox ? 200 : q.quick ? 16 : 50)
-    const tick = () => {
-      if (done) return
-      const ready = ++frames >= 2 && (!combobox || Array.from(document.querySelectorAll('[role="option"]')).some(o => inView(o.getBoundingClientRect())))
-      if (ready && q.op !== 'wait') finish(); else requestAnimationFrame(tick)
+    if (combobox) {
+      let last = '', stable = 0
+      const poll = () => {
+        if (done) return
+        const now = Array.from(document.querySelectorAll('[role="option"]')).filter(o => inView(o.getBoundingClientRect())).map(o => o.textContent).join('|')
+        stable = now && now === last ? stable + 1 : 0; last = now
+        if (stable >= 2 || performance.now() - start > 800) finish(); else setTimeout(poll, 50)
+      }
+      setTimeout(poll, 50); return
     }
+    setTimeout(finish, q.op === 'wait' ? 300 : q.quick ? 16 : 50)
+    const tick = () => { if (done) return; if (++frames >= 2 && q.op !== 'wait') finish(); else requestAnimationFrame(tick) }
     requestAnimationFrame(tick)
   })
 }

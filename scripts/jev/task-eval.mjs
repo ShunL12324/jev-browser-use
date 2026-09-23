@@ -8,7 +8,7 @@ import { launchIsolated, runBrowserTask } from './task-browser.mjs'
 
 const root = process.env.EVAL_ROOT, [taskId] = process.argv.slice(2).filter(a => !a.startsWith('--'))
 const seed = process.argv.find(a => a.startsWith('--seed='))?.slice(7) ?? 'atlas'
-const PORTS = { portal: 17441, shop: 17442, workspace: 17443, partner: 17444, forma: 17445 }
+const base = Number(process.env.EVAL_PORT_BASE ?? 17440), PORTS = { portal: base + 1, shop: base + 2, workspace: base + 3, partner: base + 4, forma: base + 5 }
 const spec = JSON.parse(await readFile(`${root}/tasks/local.json`, 'utf8')).find(t => t.id === taskId)
 const origin = `http://127.0.0.1:${PORTS[spec.site]}`
 const token = (await readFile(`${root}/.eval-token`, 'utf8').catch(() => '')).trim(), headers = { 'x-eval-token': token }
