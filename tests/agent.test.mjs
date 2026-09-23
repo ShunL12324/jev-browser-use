@@ -316,3 +316,12 @@ test('refs from an earlier document never protect or exclude elements of a new o
   const b = build(page([reserve], { documentId: 'new-doc' }), task({ inputs: { card: { value: 'x', purpose: 'card' } } }), history)
   assert.ok(b.payload.questions.target_CLICK.criteria[reserve.ref])
 })
+test('below the R2 gate a close reversible alternative (e.g. a suggestion option) runs before a handoff', async () => {
+  n = 0
+  const search = button('Search'), opt = el('Brightwell Field Jacket', { role: 'option', editable: false, tag: 'div', inputType: null })
+  const f = fake([search, opt]), kinds = []
+  let asks = 0
+  const ask = jev(({ questions }) => { asks++; return asks > 1 ? { operation: choice(questions.operation, 'DONE') } : { operation: choice(questions.operation, 'CLICK', 0.9), target_CLICK: { type: 'choice', choice: search.ref, probabilities: spread(Object.keys(questions.target_CLICK.criteria), { [search.ref]: 0.5, [opt.ref]: 0.45 }) } } })
+  await run(task(), f, ask, async h => { kinds.push(h.kind); return {} })
+  assert.deepEqual(f.s.executed.map(e => e.ref), [opt.ref]); assert.deepEqual(kinds, [])
+})

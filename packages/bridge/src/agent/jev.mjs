@@ -125,9 +125,9 @@ export function goalSpans(goal, max = 150) {
   // Structured tokens the word tokenizer would split: emails, URLs, phone
   // numbers; numbers also as digit-only forms (with and without a +country
   // prefix), since forms often reject separators.
-  for (const m of goal.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+|https?:\/\/[^\s"”'’<>]+|\+?\d[\d ()./-]{5,}\d/g)) {
+  for (const m of goal.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+|https?:\/\/[^\s"”'’<>]+|\+?\(?\d[\d ()./-]{5,}\d/g)) {
     const token = m[0].replace(/[.,;:)]+$/, ''); out.add(token)
-    if (/^\+?\d[\d ()./-]+$/.test(token)) { const digits = token.replace(/\D/g, ''); out.add(digits); const country = token.match(/^\+(\d{1,3})[ .-]/); if (country) out.add(digits.slice(country[1].length)) }
+    if (/^\+?\(?\d[\d ()./-]+$/.test(token)) { const digits = token.replace(/\D/g, ''); out.add(digits); const country = token.match(/^\+(\d{1,3})[ .-]/); if (country) out.add(digits.slice(country[1].length)) }
   }
   const words = [...goal.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’.\-/:]*/gu)].map(m => m[0].replace(/[.:]+$/, ''))
   for (let len = 1; len <= 6; len++) for (let i = 0; i + len <= words.length; i++) {
