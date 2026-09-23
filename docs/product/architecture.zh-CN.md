@@ -177,14 +177,14 @@ observe(任务 tab 集合, 所有 frame) → 元素表 + 可见文本块
 
 动作按可逆性分级，由 registry 与代码特征决定，不由模型决定：
 
-| 级别 | 例子 | 策略（初值，P1 校准） |
+| 级别 | 例子 | 策略（初值，P1a 校准） |
 | --- | --- | --- |
 | R0 只读/幂等 | SCROLL、WAIT、HOVER、打开折叠/菜单、SWITCH_TAB | argmax 直接执行 |
 | R1 可逆输入 | TYPE_TEXT、SELECT、SET_CHECKED、bind | bind 沿用 p ≥ 0.6（r2 实测接受概率 0.91–0.99）；单操作 argmax 且 p ≥ 0.4 |
 | R2 导航/非最终提交 | 链接、Continue、搜索按钮 | p ≥ 0.6 执行；低于则 `choose` handoff，列出前 5 项 |
 | R3 不可逆 | 下单、支付、预订、发送、删除、最终提交 | 不论概率一律 `confirm`（§4.2）；`irreversible:"deny"` 时终止为 needs_confirmation |
 
-说明：概率是候选间的相对偏好，不是准确率；这些数都是路由初值，不是校准结论。r2 已执行的导航最低只有 0.64–0.68，边际很薄，所以 R2 低于门槛时改为 handoff，而不是像旧 S1 那样 `UNCERTAIN` 失败。P1 用 T33 套件的真实运行，统计每级门槛下的错误执行率和 handoff 率，再定最终值；调整门槛必须附数据，不能静默修改。连续 3 个周期页面语义无变化（不计 WAIT）时，走 `choose`/`question` handoff 一次；之后仍无进展则 blocked。
+说明：概率是候选间的相对偏好，不是准确率；这些数都是路由初值，不是校准结论。r2 已执行的导航最低只有 0.64–0.68，边际很薄，所以 R2 低于门槛时改为 handoff，而不是像旧 S1 那样 `UNCERTAIN` 失败。P1a 用 T33 套件的真实运行，统计每级门槛下的错误执行率和 handoff 率，再定最终值；调整门槛必须附数据，不能静默修改。连续 3 个周期页面语义无变化（不计 WAIT）时，走 `choose`/`question` handoff 一次；之后仍无进展则 blocked。
 
 ### 2.4 文本从哪里来（handoff 最小化）
 
@@ -208,7 +208,7 @@ handoff 一次就是调用方的一个完整回合（数秒），是速度的最
 | 执行 | ~10 ms/次 | r2 exec 0.41 s / 43 步 |
 | settle | 0–50 ms（combobox ≤200 ms） | 采纳 ultrafast |
 | provider 文本 LLM | 350–600 ms（小模型） | ultrafast 记录 Mercury 346–581 ms |
-| handoff | 调用方回合，2–10 s | 估计，P1 测量 |
+| handoff | 调用方回合，2–10 s | 估计，P1b 测量 |
 
 复杂表单按这些预期：16 × ~0.4 s + 43 × 0.05 s ≈ 8.6 s，现在是 13.0 s。缓存（Stagehand 思路）：同一站点同一页面结构上的动作序列暂不缓存，因为正确性风险大于收益；作为 P5 以后的选项。
 
@@ -273,7 +273,7 @@ handoff 一次就是调用方的一个完整回合（数秒），是速度的最
 
 - 实际运行环境是用户的 Windows Chrome（已登录各种账户），扩展手动加载；bridge 在 WSL 的 127.0.0.1:17329（mirrored 网络，Windows 可访问 WSL 的 localhost 测试站，master 已于 2026-09-24 验证）。任务 tab 由服务在**专用窗口**中创建，并放进一个 tab group；服务只操作自己的 tab，绝不读写其它 tab、cookie 或已登录账户。公开站点只读，不提交。用户手动在任务 tab 上操作时，守卫会检测到变化并停止或重新观察。
 - `browser_task` 的操作集不包含 `get_cookie`、`eval_js`、`request`；低层工具仍然存在，需要调用方自行克制。评测期间 tester 只用 `browser_task` 和只读低层工具。
-- **后台 tab 节流**：扩展没有 CDP 的 focus emulation。后台 tab 的 rAF 会暂停，定时器被节流，settle 和动画可能变慢。计划：P1 测量后台 tab 与独立非聚焦窗口的 settle 时间；需要时 settle 改用 MutationObserver 加 `setTimeout` 上限，而不依赖 rAF。
+- **后台 tab 节流**：扩展没有 CDP 的 focus emulation。后台 tab 的 rAF 会暂停，定时器被节流，settle 和动画可能变慢。计划：P1b 测量后台 tab 与独立非聚焦窗口的 settle 时间；需要时 settle 改用 MutationObserver 加 `setTimeout` 上限，而不依赖 rAF。
 - **合成事件**：content script 派发的事件 `isTrusted=false`，少数控件（部分日期选择器、依赖指针事件的拖拽、剪贴板）会拒绝。可选的后备方案是 `chrome.debugger` 的 `Input.dispatch*`，代价是出现调试信息栏，而且需要新增权限。默认关闭，由用户显式开启；T33 中需要可信事件的任务单独标注。
 
 ## 5. 多 tab、iframe、新窗口、虚拟列表、下载与上传
@@ -365,8 +365,8 @@ CAPTCHA 与反机器人绕过；需要视觉的页面（canvas 应用、图像�
 
 | 风险 | 影响 | 缓解/检验 |
 | --- | --- | --- |
-| 无声明目标后 bind 变难 | T1 的成功依赖声明目标；真实 Jev 在多候选时的绑定准确率未知 | P1 第一项实验就是 complex-forms 无目标版本；失败则分析 trace，考虑用 label 相似度排序候选（仍由 Jev 选择），不回退到声明目标 |
-| 导航概率边际薄 | r2 最低 0.64 | 分级门槛 + choose handoff；P1 校准 |
+| 无声明目标后 bind 变难 | T1 的成功依赖声明目标；真实 Jev 在多候选时的绑定准确率未知 | P1a 第一项实验就是 complex-forms 无目标版本；失败则分析 trace，考虑用 label 相似度排序候选（仍由 Jev 选择），不回退到声明目标 |
+| 导航概率边际薄 | r2 最低 0.64 | 分级门槛 + choose handoff；P1a 校准 |
 | handoff 延迟 | 调用方回合为数秒 | §2.4 inputs 优先、一页一次；报告自主/辅助两栏 |
 | 后台 tab 节流、合成事件 | 速度与兼容性 | §4.6 测量；可选 debugger 后备 |
 | 大页面 token | 超 32k/64k | 视口优先、region 两阶段、精简 facts |
