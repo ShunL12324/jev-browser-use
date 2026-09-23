@@ -156,3 +156,19 @@ r3 补充：在所有 R2 门槛未过时，若模型对一个低风险（R0/R1�
 r3 开发期复测（T33 评测站私有副本，standard 变体，atlas/birch；公网经本地代理；自测，非独立验收）：portal.cancel_confirm 2/2、cancel_denied 2/2（0 提交）、login_reserve 1/1（secret 各输入 1 次）、shop.checkout_confirm 2/2、checkout_denied 2/2、address_validation 2/2（验证错误后改为纯数字电话）、cart_edit 2/2、configure_add_to_cart 1/2（birch：Search 0.55 与建议项 0.34 分散，低于提交门槛，交给调用方）、workspace.closed_shadow_recovery 2/2、forma.travel_filter 2/2、complex_forms 5/6（1 次因 Jev 返回 529 终止，已加过载重试）、Wikipedia 1/1、Google Flights 1/1（harness 修正判分后）。
 
 速度：complex-forms 的非模型时间从约 3.0 s 降到约 2.0 s（settle 2.1 → 1.2 s）。同一时段 Jev 服务端单次请求延迟为 1.1–1.5 s（并出现 529 过载），15–16 次请求下 agentMs 为 8.7–24.7 s；此前 0.45 s/请求时为 8.8–9.4 s。≤10 s 的目标取决于 Jev 服务延迟，这部分不在本仓库控制内。
+
+## P1b：多会话 hub、专用窗口、新 tab 与真实浏览器测试
+
+- **hub 模式**（`packages/bridge/src/hub.ts`）：第一个 bridge 占用 17329 并连接扩展；后启动的 bridge 遇到 `EADDRINUSE` 时，读取 hub 写入的本地 token（`$XDG_RUNTIME_DIR` 或临时目录下的 `browser-use-hub-<port>.token`，权限 0600），以 `x-hub-token` 连接 `ws://127.0.0.1:<port>/peer`，把自己的工具调用转发给 hub。带 `Origin` 头（网页发起）的连接一律拒绝。hub 退出后，某个 peer 接管端口，扩展按原有退避逻辑重连，各会话重新声明自己的 tab。进行中的调用返回 `BRIDGE_DISCONNECT`，browser_task 按“执行结果未知”停止，不重放。
+- **tab 归属**：每个 MCP 会话只能看到和操作自己打开的 tab 以及由这些 tab 打开的 tab（`openerTabId`）。`browser_tabs list` 只列这些 tab；操作其它 tab 返回 `TAB_NOT_OWNED`；不带 tabId 的调用作用于本会话的当前 tab，没有 tab 时返回 `NO_SESSION_TAB`。batch 中不允许 tabs 操作。设 `BROWSER_USE_TAB_SCOPE=off` 可恢复旧的单会话行为（仅供兼容测试）。
+- **专用窗口**：会话的新 tab 放在一个不获取焦点的独立窗口，归入 “Jev agent” tab 组（新增 `tabGroups` 权限）；由 agent tab 打开的 tab 自动加入该组。服务不读写用户自己的 tab、cookie 或账户。
+- **新 tab 采纳**：browser_task 每次点击或 Enter 后检查本会话 tab；新打开的子 tab 被采纳并成为当前 tab（激活在其窗口内，不抢窗口焦点）。有多个任务 tab 时，state 列出 `tabs`，并提供 `SWITCH_TAB` / `CLOSE_TAB`（R0）。
+- **跨页的值**：任务页面上出现的代码、邮箱、电话号码被记住（在秘密替换之后），列在 `state.valuesSeenOnTaskPages`，并作为 `text_value` 候选，可在另一页直接输入（例如帮助页上的激活码）。
+- **settle 不依赖页面计时器**：非聚焦或被遮挡的窗口里，页面 `setTimeout`/`requestAnimationFrame` 可能被节流。现在等待全部由 bridge 的 Node 计时器完成：轮询页面的 MutationObserver 计数，一个 25 ms 间隔无变化即结束（上限 150 ms）；向 combobox 输入后等可见选项连续两次不变（上限 800 ms）。首次 settle 记录页面的 `visibilityState` 与 `hasFocus()`（trace 事件 `settle_env`），用于在用户 Chrome 上测量。
+- **只读导航门槛**：同源链接和 GET 表单提交可用 GO_BACK 撤回，门槛为 0.4 且不要求边际（依据 T54-r3 中 3 次 Wikipedia 失败：argmax 都正确，分别为 Search 0.51/0.48 与建议链接 0.42；样本很少，仅作初值）。非表单的 Search 按钮等仍用 0.6（Google Flights 过早搜索的教训）。
+
+### 真实端到端（用户 Windows Chrome）
+
+`tests/tester/` 是 tester 成员的工作目录：`.mcp.json` 以相对路径启动 bridge（端口 17329，Node 走本地代理，本地地址直连；秘密与文件清单在 `/tmp/jev-tester/`，每个 seed 由 harness 的 `manifests` 命令生成）；`CLAUDE.md` 是 tester 的操作规程（只经本 MCP 操作；自主列用 `llm:"none"`，辅助列用 `llm:"handoff"`；公开站点只读；用 harness 的 `start`/`finish` 取得 runner view 与独立判分）；`page-state.js` 是公开任务判分所需的只读页面采集表达式，与 harness 自身的页面读取格式相同。
+
+机械证据（临时 Chromium，假 Jev）：`tests/hub.test.mjs`（两会话互不可见、用户 tab 不被触碰、子 tab 采纳、hub 退出后接管与重新声明）；`tests/e2e/task-tabs.mjs`（真实扩展中 target=_blank 新 tab 被采纳并跟随、第二个 MCP 会话作为 peer 看不到也用不了第一个会话的 tab）。
