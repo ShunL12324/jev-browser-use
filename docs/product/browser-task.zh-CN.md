@@ -150,3 +150,9 @@ r2 复测（开发者自测，经 WSL 本地代理访问公网；此前的连接
 - **请求体**：绑定题候选改为短标签（名称/上下文/当前值），完整规则只放在操作题与 CLICK 目标题。
 
 仍然保留的限制（已校准说明）：日期选择器中的具体日期按钮属于 R2，模型不确定时交给调用方；键盘/滑块类控件（音量滑块）、新 tab 采纳属于 P2/P4；Jev 单次请求延迟在 0.4–1.0 s 间波动，是 agentMs 的主要来源。
+
+r3 补充：在所有 R2 门槛未过时，若模型对一个低风险（R0/R1）点击给出 ≥0.3 的联合概率（例如自动完成的建议项对比 Search 提交），先执行它一次再考虑 handoff。Jev 明确返回 429/503/529（过载）时延迟 1 s 再试一次，每次尝试都单独记入账本。
+
+r3 开发期复测（T33 评测站私有副本，standard 变体，atlas/birch；公网经本地代理；自测，非独立验收）：portal.cancel_confirm 2/2、cancel_denied 2/2（0 提交）、login_reserve 1/1（secret 各输入 1 次）、shop.checkout_confirm 2/2、checkout_denied 2/2、address_validation 2/2（验证错误后改为纯数字电话）、cart_edit 2/2、configure_add_to_cart 1/2（birch：Search 0.55 与建议项 0.34 分散，低于提交门槛，交给调用方）、workspace.closed_shadow_recovery 2/2、forma.travel_filter 2/2、complex_forms 5/6（1 次因 Jev 返回 529 终止，已加过载重试）、Wikipedia 1/1、Google Flights 1/1（harness 修正判分后）。
+
+速度：complex-forms 的非模型时间从约 3.0 s 降到约 2.0 s（settle 2.1 → 1.2 s）。同一时段 Jev 服务端单次请求延迟为 1.1–1.5 s（并出现 529 过载），15–16 次请求下 agentMs 为 8.7–24.7 s；此前 0.45 s/请求时为 8.8–9.4 s。≤10 s 的目标取决于 Jev 服务延迟，这部分不在本仓库控制内。
