@@ -63,7 +63,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     if (res.execution === 'not_sent') {
       m.stale++; emit({ event: 'outcome', execution: 'not_sent', code: res.code, coveredBy: res.coveredBy })
       // Tell the model why nothing happened (e.g. what covers the target).
-      if (res.coveredBy) history.push({ op, ref: el?.ref, name: el?.name, valueId, notSent: `not executed: covered by ${res.coveredBy}` })
+      if (res.coveredBy) history.push({ doc: page.documentId, op, ref: el?.ref, name: el?.name, valueId, notSent: `not executed: covered by ${res.coveredBy}` })
       await observe(); return { sent: false, code: res.code }
     }
     m.steps++
@@ -95,7 +95,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       // A chosen option usually closes its popup; absence or a selected state is success.
       : op === 'click' ? (!after || after.selected === true || after.checked === true ? 'met' : 'unmet') : 'unknown'
     const confirmDenied = res.confirmDenied ?? settled.confirmDenied
-    const entry = { op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(newText ? { newText } : {}), ...(confirmDenied !== undefined ? { confirmDenied } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
+    // Refs are per document: every record carries the document it acted on.
+    const entry = { doc: before.documentId, op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(newText ? { newText } : {}), ...(confirmDenied !== undefined ? { confirmDenied } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
     stalls = changed || op === 'wait' ? 0 : stalls + 1
     return { sent: true, ...entry }
@@ -198,8 +199,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       }
       for (const [q, f] of Object.entries(built.fields)) {
         const a = answers[q], p = a?.probabilities?.[a.choice]
-        if (invalid.has(q)) drops.push({ valueId: `field:${f.ref}`, reason: 'invalid_answer' })
-        else if (a.choice !== 'keep' && p >= 0.7) accepted.push({ field: f, ref: f.ref, valueId: `field:${f.ref}`, args: f.choices[a.choice], p })
+        if (invalid.has(q)) drops.push({ valueId: `field:${page.documentId.slice(0, 8)}:${f.ref}`, reason: 'invalid_answer' })
+        else if (a.choice !== 'keep' && p >= 0.7) accepted.push({ field: f, ref: f.ref, valueId: `field:${page.documentId.slice(0, 8)}:${f.ref}`, args: f.choices[a.choice], p })
       }
       const perRef = accepted.reduce((c, b) => c.set(b.ref, (c.get(b.ref) ?? 0) + 1), new Map())
       const bindings = accepted.filter(b => perRef.get(b.ref) === 1 || !drops.push({ valueId: b.valueId, reason: 'binding_conflict', ref: b.ref }))
@@ -213,7 +214,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         let stopped = false
         for (const [i, b] of bindings.entries()) {
           if (page !== judged && !sameTarget(judged, page, b.ref)) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'identity_changed' }); stopped = true; break }
-          const used = new Set(history.filter(h => h.valueId && h.postcondition === 'met').map(h => h.ref)), el = page.elements.find(e => e.ref === b.ref)
+          const used = new Set(history.filter(h => h.doc === page.documentId && h.valueId && h.postcondition === 'met').map(h => h.ref)), el = page.elements.find(e => e.ref === b.ref)
           const c = b.field ? (el && !el.disabled && !used.has(b.ref) ? { op: b.field.op, ...b.args } : null) : bindCandidates(page, task.inputs[b.valueId], used)[b.ref]
           if (!c || !el) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'not_eligible' }); stopped = true; break }
           const r = await exec(c.op, el, c.op === 'upload' ? { fileId: task.inputs[b.valueId].fileId } : { text: c.text, value: c.value, checked: c.checked }, b.valueId, i < bindings.length - 1)

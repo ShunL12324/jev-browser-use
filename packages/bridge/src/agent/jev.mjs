@@ -20,18 +20,20 @@ const compact = e => ({ id: e.ref, role: e.role, name: e.name, ...(e.value ? { v
   ...(e.disabled ? { disabled: true } : {}), ...(e.required ? { required: true, valid: e.valid } : {}), ...(!e.inView ? { offscreen: true } : {}), ...(e.tag === 'select' ? { options: e.options.length > 40 ? `${e.options.length} options` : e.options.map(o => o.label) } : {}), ...(e.inputType === 'file' ? { files: e.files ?? 0 } : {}) })
 
 export function build(page, task, history) {
-  const used = new Set(history.filter(h => h.valueId && h.postcondition === 'met').map(h => h.ref))
+  // Refs are per document: only records from this document refer to these elements.
+  const here = history.filter(h => h.doc === page.documentId)
+  const used = new Set(here.filter(h => h.valueId && h.postcondition === 'met').map(h => h.ref))
   // Circuit breaker: an input or field fill that stayed unmet twice is not
   // offered again (reported as failed), instead of being retried each cycle.
   const failed = new Set(Object.entries(history.filter(h => h.valueId && h.postcondition === 'unmet').reduce((c, h) => (c[h.valueId] = (c[h.valueId] ?? 0) + 1, c), {})).filter(([, n]) => n >= 2).map(([id]) => id))
   // Only supplied inputs are protected from operation heads; a goal-derived
   // field fill may still be corrected (e.g. after a validation message).
-  const protectedRefs = new Set(history.filter(h => h.valueId && !String(h.valueId).startsWith('field:') && h.postcondition === 'met').map(h => h.ref))
+  const protectedRefs = new Set(here.filter(h => h.valueId && !String(h.valueId).startsWith('field:') && h.postcondition === 'met').map(h => h.ref))
   const { ops, targets } = pageOperations(page, history, protectedRefs)
   // Host record: text typed into a form that has not been submitted since.
   const unsubmitted = []
   for (const [i, h] of history.entries()) {
-    const e = page.elements.find(x => x.ref === h.ref)
+    const e = h.doc === page.documentId ? page.elements.find(x => x.ref === h.ref) : null
     if (h.op !== 'type' || !e?.form || e.value !== h.text) continue
     if (!history.slice(i + 1).some(l => l.navigated || l.op === 'key' || l.form === e.form && l.submit)) unsubmitted.push(e)
   }
@@ -67,7 +69,7 @@ export function build(page, task, history) {
   // Several goal-specified fields are then filled in one cycle.
   const claimed = new Set(Object.values(binds).flatMap(b => Object.keys(b.candidates)))
   const goalSpanList = spans.length ? spans : goalSpans(task.goal), fields = {}
-  const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && e.inView && !used.has(e.ref) && !claimed.has(e.ref) && !failed.has(`field:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
+  const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && e.inView && !used.has(e.ref) && !claimed.has(e.ref) && !failed.has(`field:${page.documentId.slice(0, 8)}:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
   for (const e of fillable.slice(0, 12)) {
     const choices = e.tag === 'select' ? Object.fromEntries(e.options.filter(o => !o.disabled && o.value !== e.value && o.value !== '').slice(0, 40).map((o, i) => [`o${i + 1}`, { label: o.label, value: o.value }]))
       : e.inputType === 'checkbox' || e.inputType === 'radio' ? { set: { label: 'checked', checked: true } } : Object.fromEntries(goalSpanList.filter(t => t !== e.value).map((t, i) => [`t${i + 1}`, { label: t, text: t }]))

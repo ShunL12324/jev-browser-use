@@ -307,3 +307,10 @@ test('dismiss controls are R0 and goal spans keep emails, URLs and phone numbers
   const spans = goalSpans('Set recovery email to sam@example.test, phone +1 617-555-0143, site https://x.test/a')
   for (const s of ['sam@example.test', '+1 617-555-0143', 'https://x.test/a']) assert.ok(spans.includes(s), s)
 })
+test('refs from an earlier document never protect or exclude elements of a new one', () => {
+  n = 0
+  const reserve = button('Reserve this title')
+  const history = [{ doc: 'old-doc', op: 'type', ref: reserve.ref, valueId: 'card', postcondition: 'met' }]
+  const b = build(page([reserve], { documentId: 'new-doc' }), task({ inputs: { card: { value: 'x', purpose: 'card' } } }), history)
+  assert.ok(b.payload.questions.target_CLICK.criteria[reserve.ref])
+})
