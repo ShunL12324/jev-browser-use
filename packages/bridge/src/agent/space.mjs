@@ -22,7 +22,7 @@ export const OPERATIONS = {
 
 export function describe(e) {
   const state = [e.checked === true && 'checked', e.checked === false && 'unchecked', e.expanded === true && 'expanded', e.expanded === false && 'collapsed', e.selected === true && 'selected', e.disabled && 'disabled', !e.inView && 'offscreen'].filter(Boolean)
-  return `[${e.ref}] ${e.role} "${e.name}"` + (e.context?.length ? ` in ${e.context.join(' › ')}` : '') + (e.value ? ` = ${JSON.stringify(String(e.value).slice(0, 80))}` : '') + (state.length ? ` (${state.join(', ')})` : '')
+  return `[${e.ref}] ${e.role} "${e.name}"` + (e.context?.length ? ` in ${e.context.join(' › ')}` : '') + (e.item ? ` (item: ${JSON.stringify(e.item)})` : '') + (e.value ? ` = ${JSON.stringify(String(e.value).slice(0, 80))}` : '') + (state.length ? ` (${state.join(', ')})` : '')
 }
 
 // Fields holding an applied supplied input are protected: no operation head
@@ -98,6 +98,8 @@ export function tier(op, e, page) {
   if (op === 'GO_BACK') return 'R2'
   if (irreversible(e, page)) return 'R3'
   if (op === 'PRESS_ENTER') return e?.form && irreversible(page.elements.find(x => x.submit && x.form === e.form) ?? { ...e, submit: true, name: '', editable: false }, page) ? 'R3' : 'R2'
+  // Dismissing an overlay (close / no thanks / not now) changes no data.
+  if (/^(close|dismiss|no,? thanks|not now|maybe later|skip|×|✕|x)$/i.test(e.name.trim())) return 'R0'
   if (e.editable || e.tag === 'summary' || e.expanded !== null && e.expanded !== undefined || e.hasPopup || e.role === 'tab') return 'R0'
   if (['option', 'menuitemradio', 'menuitemcheckbox', 'checkbox', 'radio', 'switch'].includes(e.role) || ['checkbox', 'radio'].includes(e.inputType)) return 'R1'
   if (e.href) { try { const u = new URL(e.href), p = new URL(page.url); return u.origin + u.pathname + u.search === p.origin + p.pathname + p.search && u.hash ? 'R0' : 'R2' } catch { return 'R2' } }

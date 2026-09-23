@@ -8,6 +8,7 @@ import { findByRef, getOrAssignRef } from './refs'
 import { shadowOf } from './shadow'
 import { actSetFiles } from './actions'
 import { setNativeValue, dispatchInput, dispatchChange } from './events'
+import { setConfirmPolicy, takeDenied, recentDialogs } from './guard'
 
 type Req = { action: string; [k: string]: unknown }
 const textTypes = new Set(['text', 'search', 'email', 'url', 'tel', 'number', 'date', 'datetime-local', 'month', 'week', 'time', 'password', ''])
@@ -18,6 +19,13 @@ const editable = (el: Element) => el instanceof HTMLTextAreaElement || el instan
 function guard(el: Element) {
   const f = facts(el), scope = el.closest('form,dialog,[role="dialog"],fieldset,li,tr,[role="row"],[role="listbox"]') ?? el.parentElement
   return hash(JSON.stringify([f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.readonly, f.context, f.dialog, scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
+}
+// Text of the list item / row / card holding a control, when it adds to the
+// control's own name (e.g. which reservation a "Cancel" button belongs to).
+function itemText(el: Element, name: string) {
+  const item = el.parentElement?.closest('li,tr,article,[role="row"],[role="listitem"],[role="article"]') as HTMLElement | null
+  const text = item?.innerText?.replace(/\s+/g, ' ').trim()
+  return text && text !== name && text.length > name.length ? text.slice(0, 120) : null
 }
 function visibleText(limit = 6000) {
   const out: string[] = []; let length = 0
@@ -48,23 +56,27 @@ function observe(limit: number) {
       checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert, readonly: f.readonly, required: f.required, valid: f.valid,
       modalBlocked: f.modalBlocked, dialog: f.dialog, context: f.context, href: f.href, options: f.options, files: f.files?.length, editable: editable(el) && !f.readonly,
       password: input?.type === 'password', submit: f.buttonType === 'submit' || input?.type === 'submit' || input?.type === 'image', formMethod: (el as HTMLInputElement).form?.method ?? null,
-      payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, form: (el as HTMLInputElement).form ? getOrAssignRef((el as HTMLInputElement).form!).ref : null, guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
+      payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, form: (el as HTMLInputElement).form ? getOrAssignRef((el as HTMLInputElement).form!).ref : null, item: itemText(el, f.name), guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
   })
   // The budget keeps the elements nearest the viewport; the model reads them
   // in page order, which is how forms and lists make sense.
   elements.sort((a, b) => a.top - b.top || a.left - b.left)
   const marker = hash(JSON.stringify([location.href, scrollY, elements.map(e => [e.ref, e.role, e.name, e.value, e.checked, e.expanded, e.disabled])]))
   return { ok: true, documentId, url: location.href, title: document.title, readyState: document.readyState, text: visibleText(),
-    dialogs: (() => { try { return JSON.parse(document.documentElement.getAttribute('data-jev-dialogs') ?? '[]') } catch { return [] } })(),
+    dialogs: recentDialogs(),
     scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - near.length, marker }
 }
-const reject = (code: string) => ({ ok: true, execution: 'not_sent', code })
-function reachable(el: Element) {
+const reject = (code: string) => ({ ok: true as const, execution: 'not_sent', code })
+// Returns null when the center is hit-testable, else a short description of
+// what covers it (reported to the model instead of retrying blindly).
+function occluder(el: Element): string | null {
   let r = el.getBoundingClientRect()
   if (!(r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth)) { el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); r = el.getBoundingClientRect() }
   const root = el.getRootNode() as Document | ShadowRoot, hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
   const labels = Array.from((el as HTMLInputElement).labels ?? [])
-  return !!hit && (hit === el || el.contains(hit) || labels.some(l => l === hit || l.contains(hit)))
+  if (hit && (hit === el || el.contains(hit) || labels.some(l => l === hit || l.contains(hit)))) return null
+  const cover = hit?.closest('[role="dialog"],dialog,[role="listbox"],[role="menu"],[aria-modal="true"]') ?? hit
+  return cover ? `${cover.getAttribute('role') ?? cover.tagName.toLowerCase()} "${((cover as HTMLElement).innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 80)}"` : 'nothing hit-testable'
 }
 function press(el: HTMLElement) {
   const r = el.getBoundingClientRect(), init = { bubbles: true, cancelable: true, composed: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 0, pointerType: 'mouse' }
@@ -83,7 +95,16 @@ function key(el: HTMLElement, name: string) {
 }
 let navigating = false
 addEventListener('beforeunload', () => { navigating = true })
-function execute(q: Req) {
+async function execute(q: Req) {
+  // Native confirm() during agent actions is denied and reported (main.ts);
+  // without the private guard channel, committing actions fail closed.
+  const committing = ['click', 'key'].includes(q.op as string)
+  if (committing && !await setConfirmPolicy(q.acceptConfirm ? 'accept-once' : 'deny')) return reject('CONFIRM_GUARD_UNAVAILABLE')
+  const result = run(q)
+  if (committing) { const denied = await takeDenied(); await setConfirmPolicy('deny'); if (denied !== undefined && result.execution === 'returned') return { ...result, confirmDenied: denied } }
+  return result
+}
+function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
   // Same-document URL updates (history API) keep the judgment usable; the
   // target guard below still protects the element itself.
   if (q.documentId !== documentId || new URL(q.url as string).origin !== location.origin) return reject('PAGE_CHANGED')
@@ -95,14 +116,15 @@ function execute(q: Req) {
     if (guard(el) !== q.guard) return reject('STALE_REF')
     const f = facts(el)
     if (f.disabled || f.inert || f.modalBlocked || !f.visible || (op === 'type' && !editable(el))) return reject('UNREACHABLE')
-    if (op !== 'hover' && !reachable(el)) return reject('UNREACHABLE')
+    const covered = op === 'hover' ? null : occluder(el)
+    if (covered) return { ...reject('UNREACHABLE'), coveredBy: covered }
   }
-  // Navigation API reports same-tick cross-document navigations; the settle
-  // step also listens for beforeunload of later scheduled ones.
-  // Native confirm() during this action is answered by policy (see main.ts):
-  // denied by default so a page-level commit cannot pass without a handoff.
-  const root = document.documentElement
-  root.setAttribute('data-jev-confirm', q.acceptConfirm ? 'accept-once' : 'deny'); root.removeAttribute('data-jev-confirm-denied')
+  // Navigation API reports same-tick cross-document navigations. A native
+  // form submission is detected exactly: a submit event that no handler
+  // prevented will navigate (SPA handlers call preventDefault).
+  let submitEvent: Event | null = null
+  const onSubmit = (e: Event) => { submitEvent = e }
+  addEventListener('submit', onSubmit, true)
   const nav = (window as unknown as { navigation?: EventTarget }).navigation
   let crossDocument = false
   const onNavigate = (e: Event) => { if (!(e as unknown as { destination: { sameDocument: boolean } }).destination.sameDocument) crossDocument = true }
@@ -134,9 +156,13 @@ function execute(q: Req) {
       case 'wait': break
       default: return reject('UNSUPPORTED')
     }
-  } finally { nav?.removeEventListener('navigate', onNavigate) }
-  const confirmDenied = root.getAttribute('data-jev-confirm-denied')
-  return { ok: true, execution: 'returned', crossDocument, ...(confirmDenied !== null ? { confirmDenied } : {}) }
+  } finally { nav?.removeEventListener('navigate', onNavigate); removeEventListener('submit', onSubmit, true) }
+  const formNavigates = !!submitEvent && !(submitEvent as Event).defaultPrevented
+  // Postcondition read here, on the live element: never on redacted observations.
+  const target = el as HTMLInputElement | null
+  const applied = op === 'type' ? (target!.isContentEditable ? target!.innerText.trim() === String(q.text).trim() : target!.value === q.text)
+    : op === 'select' ? target!.value === q.value : op === 'check' ? target!.checked === q.checked : op === 'upload' ? !!target!.files?.length : undefined
+  return { ok: true as const, execution: 'returned', crossDocument: crossDocument || formNavigates, ...(applied !== undefined ? { applied } : {}) }
 }
 // Up to two frames or 50 ms. After typing into a combobox, wait until its
 // visible options exist and stop changing (async suggestions), at most 800 ms.
@@ -146,7 +172,7 @@ function settle(q: Req) {
     const start = performance.now(), el = q.ref ? findByRef(q.ref as string) : null
     const combobox = q.op === 'type' && (el?.getAttribute('role') === 'combobox' || el?.hasAttribute('aria-autocomplete') || el?.hasAttribute('list'))
     let frames = 0, done = false
-    const finish = () => { if (!done) { done = true; const denied = document.documentElement.getAttribute('data-jev-confirm-denied'); resolve({ ok: true, navigating, ms: Math.round(performance.now() - start), ...(denied !== null ? { confirmDenied: denied } : {}) }) } }
+    const finish = () => { if (!done) { done = true; takeDenied().then(denied => resolve({ ok: true, navigating, ms: Math.round(performance.now() - start), ...(denied !== undefined ? { confirmDenied: denied } : {}) })) } }
     if (combobox) {
       let last = '', stable = 0
       const poll = () => {
@@ -157,9 +183,6 @@ function settle(q: Req) {
       }
       setTimeout(poll, 50); return
     }
-    // watch: after a submit, keep listening for a navigation start this long.
-    const watch = Number(q.watch ?? 0)
-    if (watch) { const poll = () => { if (done) return; if (navigating || performance.now() - start >= watch) finish(); else setTimeout(poll, 25) }; setTimeout(poll, 25); return }
     setTimeout(finish, q.op === 'wait' ? 300 : q.quick ? 16 : 50)
     const tick = () => { if (done) return; if (++frames >= 2 && q.op !== 'wait') finish(); else requestAnimationFrame(tick) }
     requestAnimationFrame(tick)

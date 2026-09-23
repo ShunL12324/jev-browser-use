@@ -15,12 +15,15 @@ const BIND = 'Choose the listed field that should receive exactly this supplied 
 
 const FIELD = 'Does the goal itself state what this field should be set to? If so choose that exact value (for text: the exact span of the goal; for a checkbox or radio: checked). Choose keep if the goal does not specify this field or its current value already satisfies the goal.'
 
-const compact = e => ({ id: e.ref, role: e.role, name: e.name, ...(e.value ? { value: String(e.value).slice(0, 120) } : {}), ...(e.context?.length ? { context: e.context.join(' › ') } : {}),
+const compact = e => ({ id: e.ref, role: e.role, name: e.name, ...(e.value ? { value: String(e.value).slice(0, 120) } : {}), ...(e.context?.length ? { context: e.context.join(' › ') } : {}), ...(e.item ? { item: e.item } : {}),
   ...(e.checked !== null && e.checked !== undefined ? { checked: e.checked } : {}), ...(e.expanded !== null && e.expanded !== undefined ? { expanded: e.expanded } : {}), ...(e.selected ? { selected: true } : {}),
   ...(e.disabled ? { disabled: true } : {}), ...(e.required ? { required: true, valid: e.valid } : {}), ...(!e.inView ? { offscreen: true } : {}), ...(e.tag === 'select' ? { options: e.options.length > 40 ? `${e.options.length} options` : e.options.map(o => o.label) } : {}), ...(e.inputType === 'file' ? { files: e.files ?? 0 } : {}) })
 
 export function build(page, task, history) {
   const used = new Set(history.filter(h => h.valueId && h.postcondition === 'met').map(h => h.ref))
+  // Circuit breaker: an input or field fill that stayed unmet twice is not
+  // offered again (reported as failed), instead of being retried each cycle.
+  const failed = new Set(Object.entries(history.filter(h => h.valueId && h.postcondition === 'unmet').reduce((c, h) => (c[h.valueId] = (c[h.valueId] ?? 0) + 1, c), {})).filter(([, n]) => n >= 2).map(([id]) => id))
   const { ops, targets } = pageOperations(page, history, used)
   // Host record: text typed into a form that has not been submitted since.
   const unsubmitted = []
@@ -45,8 +48,8 @@ export function build(page, task, history) {
   const inputs = {}
   for (const [id, input] of Object.entries(task.inputs)) {
     const applied = history.some(h => h.valueId === id && h.postcondition === 'met')
-    inputs[id] = { purpose: input.purpose, ...(input.fileId ? { fileId: input.fileId } : { value: input.secret ? '‹secret›' : input.value }), status: applied ? 'applied' : 'pending' }
-    if (applied) continue
+    inputs[id] = { purpose: input.purpose, ...(input.fileId ? { fileId: input.fileId } : { value: input.secret ? '‹secret›' : input.value }), status: applied ? 'applied' : failed.has(id) ? 'failed_to_apply' : 'pending' }
+    if (applied || failed.has(id)) continue
     const candidates = bindCandidates(page, input, used)
     if (!Object.keys(candidates).length) continue
     const q = `bind_${Object.keys(binds).length + 1}`
@@ -61,7 +64,7 @@ export function build(page, task, history) {
   // Several goal-specified fields are then filled in one cycle.
   const claimed = new Set(Object.values(binds).flatMap(b => Object.keys(b.candidates)))
   const goalSpanList = spans.length ? spans : goalSpans(task.goal), fields = {}
-  const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && e.inView && !used.has(e.ref) && !claimed.has(e.ref) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
+  const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && e.inView && !used.has(e.ref) && !claimed.has(e.ref) && !failed.has(`field:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
   for (const e of fillable.slice(0, 12)) {
     const choices = e.tag === 'select' ? Object.fromEntries(e.options.filter(o => !o.disabled && o.value !== e.value && o.value !== '').slice(0, 40).map((o, i) => [`o${i + 1}`, { label: o.label, value: o.value }]))
       : e.inputType === 'checkbox' || e.inputType === 'radio' ? { set: { label: 'checked', checked: true } } : Object.fromEntries(goalSpanList.filter(t => t !== e.value).map((t, i) => [`t${i + 1}`, { label: t, text: t }]))
@@ -77,7 +80,7 @@ export function build(page, task, history) {
   const omittedTargets = targets.omitted ?? {}
   const state = { goal: task.goal, ...(Object.keys(omittedTargets).length ? { omittedTargets } : {}), ...(page.dialogs?.length ? { recentDialogs: page.dialogs } : {}), ...(unsubmitted.length ? { unsubmittedTextFields: { fields: [...new Set(unsubmitted.map(f => f.name))], note: 'Typed into a form that has not been submitted since (host record). The typed value may not take effect until the form is submitted.', submitButtons: [...submitters.keys()] } } : {}), page: { url: page.url, title: page.title, text: page.text, ...(page.omitted ? { omittedElements: page.omitted } : {}) },
     elements: page.elements.map(compact), inputSummary, inputs,
-    recentActions: history.slice(-10).map(h => ({ op: h.op, target: h.name, ...(h.valueId ? { input: h.valueId } : {}), result: h.postcondition ?? (h.changed ? 'page changed' : 'no visible change') })) }
+    recentActions: history.slice(-10).map(h => ({ op: h.op, target: h.name, ...(h.valueId ? { input: h.valueId } : {}), result: h.notSent ?? (h.confirmed ? `executed after the caller approved the page confirmation "${h.confirmed}"` : h.postcondition ?? (h.changed ? 'page changed' : 'no visible change')) })) }
   const payload = { state, questions }
   const bytes = Buffer.byteLength(JSON.stringify(payload))
   if (bytes > 120000) throw new RunError('RESOURCE_LIMIT', 'Request exceeds the 120 KB byte budget.')
@@ -111,6 +114,8 @@ const STOP = new Set('a an the to of and or in on at for with from by into onto 
 export function goalSpans(goal, max = 150) {
   const out = new Set()
   for (const m of goal.matchAll(/(?<!\p{L})["“'‘]([^"”'’]{1,80})["”'’](?!\p{L})/gu)) out.add(m[1].trim())
+  // Structured tokens the word tokenizer would split: emails, URLs, phone numbers.
+  for (const m of goal.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+|https?:\/\/[^\s"”'’<>]+|\+?\d[\d ()./-]{5,}\d/g)) out.add(m[0].replace(/[.,;:)]+$/, ''))
   const words = [...goal.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’.\-/:]*/gu)].map(m => m[0].replace(/[.:]+$/, ''))
   for (let len = 1; len <= 6; len++) for (let i = 0; i + len <= words.length; i++) {
     const w = words.slice(i, i + len)

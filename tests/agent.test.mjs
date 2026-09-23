@@ -273,3 +273,37 @@ test('options cut at 254 per head are reported in state', () => {
   assert.equal(Object.keys(b.payload.questions.target_CLICK.criteria).length, 254)
   assert.equal(b.payload.state.omittedTargets.CLICK, 6)
 })
+test('secret postconditions come from the executor; repeated unmet inputs stop being offered', async () => {
+  n = 0
+  const card = el('Library card'), f = fake([card]), call = f.call
+  // Observation shows the secret redacted; the executor reports applied.
+  f.call = async (name, args) => { const r = await call(name, args); if (args.action === 'agent_execute') return { ...r, applied: true }; return r }
+  let asks = 0
+  const t = task({ inputs: { card: { value: '4000-1234', purpose: 'library card', secret: true, origins: [origin] } } })
+  const { result } = await run(t, f, async p => { asks++; return answer({ op: () => ['DONE'] })(p) })
+  assert.equal(f.s.executed.length, 1); assert.equal(asks, 2); assert.equal(result.status, 'done')
+  // A field that never accepts the value: two unmet attempts, then not offered again.
+  n = 0
+  const stubborn = el('Code'), g = fake([stubborn]), gcall = g.call
+  g.call = async (name, args) => { const r = await gcall(name, args); if (args.action === 'agent_execute') { g.s.elements[0].value = ''; return { ...r, applied: false } } return r }
+  let binds = []
+  await run(task({ inputs: { code: { value: 'X1', purpose: 'code' } }, budgets: { maxSteps: 20, maxJevRequests: 8, timeoutMs: 10000 } }), g, async p => { binds.push(Object.keys(p.questions).filter(k => k.startsWith('bind_')).length); return answer({ op: () => ['WAIT'] })(p) })
+  assert.equal(g.s.executed.filter(e => e.op === 'type').length, 2)
+  assert.ok(binds.slice(2).every(n => n === 0))
+})
+test('a covered target is reported to the model instead of retried blindly', async () => {
+  n = 0
+  const go = button('Search'), f = fake([go]), call = f.call
+  let covered = true
+  f.call = async (name, args) => args.action === 'agent_execute' && covered ? (covered = false, { ok: true, execution: 'not_sent', code: 'UNREACHABLE', coveredBy: 'listbox "Suggestions"' }) : call(name, args)
+  const seen = []
+  let asks = 0
+  await run(task(), f, async p => { asks++; seen.push(JSON.stringify(p.state.recentActions)); return answer({ op: () => asks === 1 ? ['CLICK', go.ref] : ['DONE'] })(p) })
+  assert.ok(seen[1].includes('covered by listbox'))
+})
+test('dismiss controls are R0 and goal spans keep emails, URLs and phone numbers', async () => {
+  const { goalSpans } = await import('../packages/bridge/src/agent/jev.mjs')
+  assert.equal(tier('CLICK', button('No thanks'), page([])), 'R0')
+  const spans = goalSpans('Set recovery email to sam@example.test, phone +1 617-555-0143, site https://x.test/a')
+  for (const s of ['sam@example.test', '+1 617-555-0143', 'https://x.test/a']) assert.ok(spans.includes(s), s)
+})

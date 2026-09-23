@@ -60,13 +60,20 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     emit({ event: 'execute', op, ref: el?.ref, name: el?.name, context: el?.context, valueId })
     let res
     try { res = await s1(request, 'execMs') } catch (error) { emit({ event: 'outcome', execution: 'unknown', code: error.code }); throw new RunError('OUTCOME_UNKNOWN', 'Execution transport failed; the action is not replayed.') }
-    if (res.execution === 'not_sent') { m.stale++; emit({ event: 'outcome', execution: 'not_sent', code: res.code }); await observe(); return { sent: false, code: res.code } }
+    if (res.execution === 'not_sent') {
+      m.stale++; emit({ event: 'outcome', execution: 'not_sent', code: res.code, coveredBy: res.coveredBy })
+      // Tell the model why nothing happened (e.g. what covers the target).
+      if (res.coveredBy) history.push({ op, ref: el?.ref, name: el?.name, valueId, notSent: `not executed: covered by ${res.coveredBy}` })
+      await observe(); return { sent: false, code: res.code }
+    }
     m.steps++
     // A link to another document may start navigating after the settle
     // window (script-driven suggestions, slow networks); so may a form submit.
-    const linkAway = op === 'click' && el?.href && crossDocumentHref(el.href, page.url), submitting = op === 'key' || op === 'click' && el?.submit
-    let settled
-    try { settled = await s1({ action: 'agent_settle', op, ref: el?.ref, quick, watch: submitting ? 150 : 0 }, 'settleMs') } catch { settled = { navigating: true } }
+    const linkAway = op === 'click' && el?.href && crossDocumentHref(el.href, page.url)
+    // Between two bindings of one batch no settle round trip is needed: the
+    // next binding re-observes and re-checks its own target first.
+    let settled = { navigating: false }
+    if (!quick || el?.role === 'combobox' || el?.hasPopup) try { settled = await s1({ action: 'agent_settle', op, ref: el?.ref, quick }, 'settleMs') } catch { settled = { navigating: true } }
     if (res.crossDocument || settled.navigating || linkAway) {
       // Wait for the next document instead of deciding on the unloading one:
       // up to 15 s once navigation is seen, up to 3 s when only expected.
@@ -76,8 +83,11 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     } else { await observe(); navPending = false }
     const changed = page.documentId !== before.documentId || page.marker !== before.marker
     const after = page.elements.find(e => e.ref === el?.ref)
-    const postcondition = !valueId ? undefined : page.documentId !== before.documentId ? 'unknown'
-      : op === 'type' ? (after?.value === args.text ? 'met' : 'unmet') : op === 'select' ? (after?.value === args.value ? 'met' : 'unmet')
+    // The executor compares on the live element (secrets included); the later
+    // observation must also agree where it can (not for redacted secrets).
+    const secretInput = !!task.inputs[valueId]?.secret
+    const postcondition = !valueId ? undefined : page.documentId !== before.documentId ? 'unknown' : res.applied === false ? 'unmet'
+      : op === 'type' ? (secretInput ? (res.applied ? 'met' : 'unknown') : after?.value === args.text ? 'met' : 'unmet') : op === 'select' ? (after?.value === args.value ? 'met' : 'unmet')
       : op === 'check' ? (after?.checked === args.checked ? 'met' : 'unmet') : op === 'upload' ? (after?.files ? 'met' : 'unmet')
       // A chosen option usually closes its popup; absence or a selected state is success.
       : op === 'click' ? (!after || after.selected === true || after.checked === true ? 'met' : 'unmet') : 'unknown'
@@ -128,7 +138,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       if (!ok.approve) return result('blocked', { reason: 'confirmation_denied' })
       const again = page.elements.find(e => e.ref === el?.ref && e.role === el.role && e.name === el.name)
       if (!again) return result('blocked', { reason: 'confirm_target_gone' })
-      await exec(OP[op], again, { ...(op === 'PRESS_ENTER' ? { key: 'Enter' } : {}), acceptConfirm: true })
+      const done = await exec(OP[op], again, { ...(op === 'PRESS_ENTER' ? { key: 'Enter' } : {}), acceptConfirm: true })
+      if (done.sent) history.at(-1).confirmed = r.confirmDenied
     }
   }
   const choose = async (answers, built, why) => {

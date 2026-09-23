@@ -20,6 +20,9 @@ export {}
 const INIT_FLAG = '__quarry_main_init__'
 const EVAL_CHANNEL = '__quarry_eval__'
 const STATE_KEY = '__quarry_dialogs__'
+const GUARD_CHANNEL = '__jev_guard__'
+let confirmPolicy: 'accept' | 'deny' | 'accept-once' = 'accept'
+let guardPort: MessagePort | null = null
 
 interface CapturedDialog {
   type: 'alert' | 'confirm' | 'prompt'
@@ -33,8 +36,27 @@ interface CapturedDialog {
 if (!(window as any)[INIT_FLAG]) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(window as any)[INIT_FLAG] = true
+  installGuardHandshake()
   installEvalBridge()
   installDialogOverrides()
+}
+
+// ── browser_task guard channel ──────────────────────────────────────
+// The first port offered on the guard channel (sent by the ISOLATED world at
+// document_start, before page scripts can post) is the only policy source.
+function installGuardHandshake() {
+  const onHandshake = (event: MessageEvent) => {
+    if (guardPort || event.data?.channel !== GUARD_CHANNEL || !event.ports?.[0]) return
+    event.stopImmediatePropagation()
+    window.removeEventListener('message', onHandshake, true)
+    guardPort = event.ports[0]
+    guardPort.onmessage = m => {
+      if (m.data?.policy === 'deny' || m.data?.policy === 'accept-once') confirmPolicy = m.data.policy
+      if (m.data?.ping !== undefined) guardPort!.postMessage({ pong: m.data.ping })
+    }
+    guardPort.postMessage({ ready: true })
+  }
+  window.addEventListener('message', onHandshake, true)
 }
 
 // ── eval_js bridge via postMessage ──────────────────────────────────
@@ -133,15 +155,16 @@ function installDialogOverrides() {
     return undefined
   } as typeof window.alert
 
-  // browser_task sets data-jev-confirm on <html> around its own actions:
-  // "deny" answers false and reports the message (the page's commit is
-  // aborted); "accept-once" answers true once. Without it, behaviour is
-  // unchanged (accept). Messages cross worlds as DOM attribute strings.
+  // browser_task's confirm policy lives in this closure and arrives only over
+  // a MessagePort handed over at document_start (see guard.ts); nothing is
+  // stored in the page-visible DOM. "deny" answers false and reports the
+  // message (the page's commit is aborted); "accept-once" answers true once.
+  // Without a policy (low-level tools), behaviour is unchanged (accept).
   window.confirm = function (msg?: unknown) {
-    push({ type: 'confirm', message: String(msg ?? ''), ts: Date.now() })
-    const root = document.documentElement, policy = root?.getAttribute('data-jev-confirm')
-    if (policy === 'deny') { root.setAttribute('data-jev-confirm-denied', String(msg ?? '').slice(0, 500)); return false }
-    if (policy === 'accept-once') root.setAttribute('data-jev-confirm', 'deny')
+    const message = String(msg ?? '')
+    push({ type: 'confirm', message, ts: Date.now() })
+    if (confirmPolicy === 'deny') { guardPort?.postMessage({ denied: message.slice(0, 500) }); return false }
+    if (confirmPolicy === 'accept-once') confirmPolicy = 'deny'
     return true
   } as typeof window.confirm
 
@@ -161,11 +184,8 @@ function installDialogOverrides() {
 }
 
 function push(d: CapturedDialog) {
-  // Recent dialog texts for observation (e.g. an alert carrying a result).
-  try {
-    const root = document.documentElement, recent = JSON.parse(root.getAttribute('data-jev-dialogs') ?? '[]')
-    root.setAttribute('data-jev-dialogs', JSON.stringify([...recent, { type: d.type, message: d.message.slice(0, 300) }].slice(-5)))
-  } catch { /* observation aid only */ }
+  // Dialog texts for observation (e.g. an alert carrying a result), private channel.
+  guardPort?.postMessage({ dialog: { type: d.type, message: d.message.slice(0, 300) } })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const state = (window as any)[STATE_KEY] as { captured: CapturedDialog[] } | undefined
   if (state) state.captured.push(d)
