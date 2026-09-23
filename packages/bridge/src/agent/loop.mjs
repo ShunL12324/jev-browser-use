@@ -107,6 +107,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     emit({ event: 'execute', op, ref: el?.ref, name: el?.name, context: el?.context, valueId })
     let res
     try { res = await s1(request, 'execMs') } catch (error) { emit({ event: 'outcome', execution: 'unknown', code: error.code }); throw new RunError('OUTCOME_UNKNOWN', 'Execution transport failed; the action is not replayed.') }
+    // Without the page's confirm guard, committing actions are never sent.
+    if (res.execution === 'not_sent' && res.code === 'CONFIRM_GUARD_UNAVAILABLE') throw new RunError('CONFIRM_GUARD_UNAVAILABLE', 'The page confirm guard is unavailable (e.g. the page took over its channel); clicks are refused. Nothing was executed.')
     if (res.execution === 'not_sent') {
       m.stale++; emit({ event: 'outcome', execution: 'not_sent', code: res.code, coveredBy: res.coveredBy })
       // Tell the model why nothing happened (e.g. what covers the target).

@@ -48,7 +48,8 @@ try {
   const peerCall = async (name, args) => { const r = await peer.callTool({ name, arguments: args }); const d = JSON.parse(r.content[0].text); return r.isError ? { error: d.code } : d }
   assert.deepEqual((await peerCall('browser_tabs', { action: 'list' })).tabs, [])
   assert.equal((await peerCall('browser_view', { tabId: result.tabId })).error, 'TAB_NOT_OWNED')
-  const own = (await peerCall('browser_tabs', { action: 'new', url: origin + '/' })).tabId
+  const own = (await peerCall('browser_tabs', { action: 'new', url: 'about:blank' })).tabId
+  await peerCall('browser_navigate', { tabId: own, url: origin + '/' })
   assert.ok((await peerCall('browser_view', { tabId: own })).content?.includes('Settings'))
   assert.equal((await browser.tool('browser_view', { tabId: own }).catch(e => ({ error: e.code }))).error, 'TAB_NOT_OWNED')
   console.log(JSON.stringify({ event: 'task_tabs_pass', adoptedTab: adopted.tabId, settleEnv: env, liveJev: false }))

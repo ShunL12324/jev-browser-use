@@ -50,7 +50,9 @@ try {
   assert.equal(r.status, 'done'); assert.equal(r.finalUrl, origin + '/target')
   // Page scripts cannot unlock the confirm policy.
   r = await runTask(t({ irreversible: 'deny', startUrl: origin + '/hostile' }), { call, ask: click('Cancel reservation'), handoff: async () => { throw Error('deny mode must not ask') } })
-  assert.equal(r.status, 'needs_confirmation'); assert.equal(commits, 1)
+  // Either the guard held (deny) or the page captured the channel first and
+  // clicks were refused (fail closed); never a commit.
+  assert.ok(r.status === 'needs_confirmation' || r.code === 'CONFIRM_GUARD_UNAVAILABLE', JSON.stringify(r)); assert.equal(commits, 1)
   // A secret typed into a plain text field: executor-side postcondition, applied once.
   const events = []
   const secretTask = { ...t({ startUrl: origin + '/login' }), inputs: { card: { value: '4000-1234-5678', purpose: 'library card number', secret: true, origins: [origin] } } }
