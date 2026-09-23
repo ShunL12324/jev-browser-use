@@ -81,7 +81,10 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       do { await delay(80, undefined, { signal }); await observe() } while (page.documentId === before.documentId && now() < deadline)
       navPending = page.documentId === before.documentId
     } else { await observe(); navPending = false }
-    const changed = page.documentId !== before.documentId || page.marker !== before.marker
+    const changed = page.documentId !== before.documentId || page.marker !== before.marker || page.text !== before.text
+    // Text that appeared because of this action (validation errors, results,
+    // confirmations) is the most direct feedback the model can get.
+    const seen = new Set(before.text.split('\n')), newText = page.documentId === before.documentId ? page.text.split('\n').filter(l => l.trim() && !seen.has(l)).join(' | ').slice(0, 240) : ''
     const after = page.elements.find(e => e.ref === el?.ref)
     // The executor compares on the live element (secrets included); the later
     // observation must also agree where it can (not for redacted secrets).
@@ -92,7 +95,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       // A chosen option usually closes its popup; absence or a selected state is success.
       : op === 'click' ? (!after || after.selected === true || after.checked === true ? 'met' : 'unmet') : 'unknown'
     const confirmDenied = res.confirmDenied ?? settled.confirmDenied
-    const entry = { op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(confirmDenied !== undefined ? { confirmDenied } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
+    const entry = { op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(newText ? { newText } : {}), ...(confirmDenied !== undefined ? { confirmDenied } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
     stalls = changed || op === 'wait' ? 0 : stalls + 1
     return { sent: true, ...entry }
@@ -217,8 +220,14 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
           if (!r.sent || r.postcondition === 'unmet' || r.navigated) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: r.sent ? r.postcondition === 'unmet' ? 'postcondition_unmet' : 'navigated' : 'not_sent' }); stopped = true; break }
           // A new dialog or newly visible options mean the page now expects a
           // choice (autocomplete, picker); later values wait for a new decision.
+          // Autocomplete: when exactly one offered option is the typed value
+          // itself, choosing it completes the same fill (like a native select).
+          if (c.op === 'type' && (el.role === 'combobox' || el.hasPopup)) {
+            const same = page.elements.filter(e => e.role === 'option' && !e.disabled && norm(e.name) === norm(c.text))
+            if (same.length === 1) { const pick = await exec('click', same[0]); emit({ event: 'autocomplete_pick', valueId: b.valueId, option: same[0].name, sent: pick.sent }) }
+          }
           const popup = popups(page).filter(x => !popups(judged).includes(x))
-          if (c.op === 'type' && (el.role === 'combobox' || el.hasPopup) && i < bindings.length - 1) popup.push('combobox_typed')
+          if (c.op === 'type' && (el.role === 'combobox' || el.hasPopup) && i < bindings.length - 1 && popups(page).some(x => x.startsWith('option:'))) popup.push('combobox_typed')
           if (popup.length) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'popup_opened', popup: popup.slice(0, 3) }); stopped = true; break }
         }
         // The operation head was asked for the step after this cycle's

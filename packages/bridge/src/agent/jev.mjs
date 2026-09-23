@@ -24,7 +24,10 @@ export function build(page, task, history) {
   // Circuit breaker: an input or field fill that stayed unmet twice is not
   // offered again (reported as failed), instead of being retried each cycle.
   const failed = new Set(Object.entries(history.filter(h => h.valueId && h.postcondition === 'unmet').reduce((c, h) => (c[h.valueId] = (c[h.valueId] ?? 0) + 1, c), {})).filter(([, n]) => n >= 2).map(([id]) => id))
-  const { ops, targets } = pageOperations(page, history, used)
+  // Only supplied inputs are protected from operation heads; a goal-derived
+  // field fill may still be corrected (e.g. after a validation message).
+  const protectedRefs = new Set(history.filter(h => h.valueId && !String(h.valueId).startsWith('field:') && h.postcondition === 'met').map(h => h.ref))
+  const { ops, targets } = pageOperations(page, history, protectedRefs)
   // Host record: text typed into a form that has not been submitted since.
   const unsubmitted = []
   for (const [i, h] of history.entries()) {
@@ -80,7 +83,7 @@ export function build(page, task, history) {
   const omittedTargets = targets.omitted ?? {}
   const state = { goal: task.goal, ...(Object.keys(omittedTargets).length ? { omittedTargets } : {}), ...(page.dialogs?.length ? { recentDialogs: page.dialogs } : {}), ...(unsubmitted.length ? { unsubmittedTextFields: { fields: [...new Set(unsubmitted.map(f => f.name))], note: 'Typed into a form that has not been submitted since (host record). The typed value may not take effect until the form is submitted.', submitButtons: [...submitters.keys()] } } : {}), page: { url: page.url, title: page.title, text: page.text, ...(page.omitted ? { omittedElements: page.omitted } : {}) },
     elements: page.elements.map(compact), inputSummary, inputs,
-    recentActions: history.slice(-10).map(h => ({ op: h.op, target: h.name, ...(h.valueId ? { input: h.valueId } : {}), result: h.notSent ?? (h.confirmed ? `executed after the caller approved the page confirmation "${h.confirmed}"` : h.postcondition ?? (h.changed ? 'page changed' : 'no visible change')) })) }
+    recentActions: history.slice(-10).map(h => ({ op: h.op, target: h.name, ...(h.valueId ? { input: h.valueId } : {}), result: h.notSent ?? (h.confirmed ? `executed after the caller approved the page confirmation "${h.confirmed}"` : h.postcondition ?? (h.changed ? 'page changed' : 'no visible change')), ...(h.newText ? { newText: h.newText } : {}) })) }
   const payload = { state, questions }
   const bytes = Buffer.byteLength(JSON.stringify(payload))
   if (bytes > 120000) throw new RunError('RESOURCE_LIMIT', 'Request exceeds the 120 KB byte budget.')
@@ -114,8 +117,13 @@ const STOP = new Set('a an the to of and or in on at for with from by into onto 
 export function goalSpans(goal, max = 150) {
   const out = new Set()
   for (const m of goal.matchAll(/(?<!\p{L})["“'‘]([^"”'’]{1,80})["”'’](?!\p{L})/gu)) out.add(m[1].trim())
-  // Structured tokens the word tokenizer would split: emails, URLs, phone numbers.
-  for (const m of goal.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+|https?:\/\/[^\s"”'’<>]+|\+?\d[\d ()./-]{5,}\d/g)) out.add(m[0].replace(/[.,;:)]+$/, ''))
+  // Structured tokens the word tokenizer would split: emails, URLs, phone
+  // numbers; numbers also as digit-only forms (with and without a +country
+  // prefix), since forms often reject separators.
+  for (const m of goal.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+|https?:\/\/[^\s"”'’<>]+|\+?\d[\d ()./-]{5,}\d/g)) {
+    const token = m[0].replace(/[.,;:)]+$/, ''); out.add(token)
+    if (/^\+?\d[\d ()./-]+$/.test(token)) { const digits = token.replace(/\D/g, ''); out.add(digits); const country = token.match(/^\+(\d{1,3})[ .-]/); if (country) out.add(digits.slice(country[1].length)) }
+  }
   const words = [...goal.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’.\-/:]*/gu)].map(m => m[0].replace(/[.:]+$/, ''))
   for (let len = 1; len <= 6; len++) for (let i = 0; i + len <= words.length; i++) {
     const w = words.slice(i, i + len)
