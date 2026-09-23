@@ -103,7 +103,7 @@
 
 ## 3. 公开只读任务
 
-[`tasks/public.json`](../examples/eval/tasks/public.json) 共 12 个，不登录、不提交：jev-ultrafast 的 Wikipedia 条目任务与 Google Flights 单程搜索（Zurich→London，2026-11-20，判定与其 `examples/flights.py` 的 `verify()` 相同），以及 Wikipedia 事实/比较、arXiv、MDN、Python 文档、GitHub、Cambridge Dictionary、OpenStreetMap。
+[`tasks/public.json`](../examples/eval/tasks/public.json) 共 12 个，不登录、不提交：jev-ultrafast 的 Wikipedia 条目任务与 Google Flights 单程搜索（Zurich→London，2026-11-20，判定项与其 `examples/flights.py` 的 `verify()` 相同；由于本 harness 的页面读取与它的 snapshot 不同——票型控件读作 combobox “One way”，“Select flight” 按钮不带日期、日期在结果链接的描述里——单程与结果两项按这些读法判定，并用 2026-09-24 实际抓取的单程/往返/错误日期三个页面做正负测试，见 `test/flights-grader.test.mjs`），以及 Wikipedia 事实/比较、arXiv、MDN、Python 文档、GitHub、Cambridge Dictionary、OpenStreetMap。
 
 - 判定在 [`checks/public.mjs`](../examples/eval/checks/public.mjs)：答案文本检查，或页面状态检查（URL、控件值、可见文本）。页面状态由 harness 从它自己拥有的浏览器读取时，证据为 `harness_page_read`；tester 模式下只能是 runner 上报的快照，证据级别降为 `runner_reported_page`，报告中分开。
 - `node harness/verify-public.mjs` 用只读 GET 核对每个答案键仍与权威页面一致（验证的是答案键，不是 runner）。本机网络对部分站点偶发 `fetch failed`，脚本会重试一次，失败项需人工复核。

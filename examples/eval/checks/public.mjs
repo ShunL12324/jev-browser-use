@@ -25,12 +25,16 @@ export function googleFlightsOneWay({ task, pageState }) {
   const values = Object.fromEntries((pageState.controls ?? []).map(x => [String(x.label ?? '').trim(), x.value]))
   let dateInUrl = false
   try { const tfs = url.searchParams.get('tfs') ?? ''; dateInUrl = Buffer.from(tfs.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('latin1').includes(e.iso) } catch { dateInUrl = false }
-  const flights = (pageState.controls ?? []).map(x => String(x.label ?? '')).filter(l => l.includes('Select flight'))
+  // Result rows: jev-ultrafast reads 'Select flight' labels that carry the
+  // date; this page read also sees the result links whose description carries it.
+  const all = pageState.controls ?? [], texts = x => [x.label, x.ariaLabel, x.text].filter(Boolean).map(String)
+  const flights = all.flatMap(texts).filter(l => /Leaves .+ on /.test(l) || (l.includes('Select flight') && l.length > 'Select flight'.length))
+  const oneWay = values['Change ticket type. One way'] === 'One way' || all.some(x => x.role === 'combobox' && texts(x).some(t => /^(change ticket type\.? )?one way$/i.test(t.trim())))
   return {
     evidence: evidence(pageState),
     checks: [
       c('search_page', url.hostname === 'www.google.com' && url.pathname === '/travel/flights/search', url.pathname),
-      c('one_way', values['Change ticket type. One way'] === 'One way' || /one way/i.test(values['Change ticket type'] ?? '')),
+      c('one_way', oneWay),
       c('origin', /z(ü|u)rich/i.test(values['Where from?'] ?? ''), values['Where from?']),
       c('destination', /london/i.test(values['Where to?'] ?? ''), values['Where to?']),
       c('date', values['Departure'] === e.short, values['Departure']),
