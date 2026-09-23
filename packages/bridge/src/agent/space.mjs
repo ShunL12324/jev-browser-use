@@ -32,7 +32,8 @@ export function targets(page, used = new Set()) {
   for (const e of page.elements.filter(usable)) {
     if (e.inputType === 'file' || e.password) continue
     if (used.has(e.ref)) { if (e.editable && e.value && e.tag !== 'textarea') out.PRESS_ENTER[e.ref] = { ref: e.ref }; continue }
-    if (e.tag !== 'select') out.CLICK[e.ref] = { ref: e.ref }
+    // Unnamed controls give the model nothing to judge; they stay unoffered.
+    if (e.tag !== 'select' && e.name && !/^<\w+>$/.test(e.name)) out.CLICK[e.ref] = { ref: e.ref }
     if (e.editable) out.TYPE_TEXT[e.ref] = { ref: e.ref }
     if (e.editable && e.value && e.tag !== 'textarea') out.PRESS_ENTER[e.ref] = { ref: e.ref }
     // Long native lists stay reachable through supplied-input binding.
@@ -67,6 +68,8 @@ export function bindCandidates(page, input, used) {
     if (e.inputType === 'checkbox') { if (['true', 'false'].includes(v) && e.checked !== (v === 'true')) out[e.ref] = { ref: e.ref, op: 'check', checked: v === 'true' }; continue }
     if (e.inputType === 'radio') { if (!e.checked && norm(e.name) === norm(v)) out[e.ref] = { ref: e.ref, op: 'check', checked: true }; continue }
     if (e.tag === 'select') { const o = e.options?.find(o => !o.disabled && (norm(o.label) === norm(v) || norm(o.value) === norm(v))); if (o && o.value !== e.value) out[e.ref] = { ref: e.ref, op: 'select', value: o.value }; continue }
+    // Custom choice widgets: an option/radio/tab whose accessible name is the value.
+    if (['option', 'menuitemradio', 'radio', 'tab'].includes(e.role) && !e.editable && norm(e.name) === norm(v) && e.selected !== true && e.checked !== true) { out[e.ref] = { ref: e.ref, op: 'click' }; continue }
     if (e.editable && (!e.password || input.secret) && typed(e, v) && e.value !== v) out[e.ref] = { ref: e.ref, op: 'type', text: v }
   }
   return out

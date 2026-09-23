@@ -67,7 +67,9 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     const after = page.elements.find(e => e.ref === el?.ref)
     const postcondition = !valueId ? undefined : page.documentId !== before.documentId ? 'unknown'
       : op === 'type' ? (after?.value === args.text ? 'met' : 'unmet') : op === 'select' ? (after?.value === args.value ? 'met' : 'unmet')
-      : op === 'check' ? (after?.checked === args.checked ? 'met' : 'unmet') : op === 'upload' ? (after?.files ? 'met' : 'unmet') : 'unknown'
+      : op === 'check' ? (after?.checked === args.checked ? 'met' : 'unmet') : op === 'upload' ? (after?.files ? 'met' : 'unmet')
+      // A chosen option usually closes its popup; absence or a selected state is success.
+      : op === 'click' ? (!after || after.selected === true || after.checked === true ? 'met' : 'unmet') : 'unknown'
     const entry = { op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
     stalls = changed || op === 'wait' ? 0 : stalls + 1
@@ -181,6 +183,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
           // A new dialog or newly visible options mean the page now expects a
           // choice (autocomplete, picker); later values wait for a new decision.
           const popup = popups(page).filter(x => !popups(judged).includes(x))
+          if (c.op === 'type' && (el.role === 'combobox' || el.hasPopup) && i < bindings.length - 1) popup.push('combobox_typed')
           if (popup.length) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'popup_opened', popup: popup.slice(0, 3) }); stopped = true; break }
         }
         // The operation head was asked for the step after this cycle's
