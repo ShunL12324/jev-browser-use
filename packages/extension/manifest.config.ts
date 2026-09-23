@@ -21,7 +21,8 @@ export default defineManifest({
     'cookies',         // chrome.cookies.getAll for get_cookie
     'scripting',       // chrome.scripting fallback (rarely used)
     'alarms',
-    'webNavigation'    // chrome.webNavigation.getAllFrames for snapshot fanout
+    'webNavigation',   // chrome.webNavigation.getAllFrames for snapshot fanout
+    'tabGroups'        // group agent tabs in their dedicated window
   ],
   host_permissions: ['<all_urls>'],
 

@@ -216,16 +216,16 @@ export interface ScrollResult {
 }
 
 export type TabsParams =
-  | { action: 'list' }
+  | { action: 'list'; all?: boolean }
   | { action: 'switch'; tabId: number }
-  | { action: 'new'; url?: string; active?: boolean }
+  | { action: 'new'; url?: string; active?: boolean; dedicated?: boolean }
   | { action: 'close'; tabId: number }
 export type TabsResult =
   | {
       ok: true
       action: 'list'
       active?: number
-      tabs: Array<{ id: number; url: string; title: string; active: boolean }>
+      tabs: Array<{ id: number; url: string; title: string; active: boolean; openerTabId?: number; windowId?: number }>
     }
   | { ok: true; action: 'switch'; tabId: number }
   | { ok: true; action: 'new'; tabId: number }

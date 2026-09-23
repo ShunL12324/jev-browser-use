@@ -43,7 +43,7 @@ test('real stdio MCP process relays calls, errors, and heartbeat to a simulated 
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ['packages/bridge/dist/index.js'],
-    env: { ...process.env, BROWSER_USE_PORT: String(port) },
+    env: { ...process.env, BROWSER_USE_PORT: String(port), BROWSER_USE_TAB_SCOPE: 'off' },
     stderr: 'pipe'
   })
   const client = new Client({ name: 'replication-smoke', version: '1.0.0' })

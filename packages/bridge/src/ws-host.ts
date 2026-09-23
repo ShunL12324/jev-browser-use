@@ -2,10 +2,12 @@
 // MCP tool calls as BridgeCommand frames and await BridgeResult by id.
 
 import { WebSocketServer, type WebSocket } from 'ws'
+import type { IncomingMessage } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import {
   BRIDGE_PROTOCOL_VERSION,
   BRIDGE_PATH,
+  HUB_PATH,
   ToolInvokeError,
   type BridgeFrame,
   type BridgeCommand,
@@ -34,8 +36,10 @@ interface Pending {
   tool: string
 }
 
-export async function startWsHost(opts: { port: number }): Promise<WsHost> {
-  const wss = new WebSocketServer({ host: '127.0.0.1', port: opts.port, path: BRIDGE_PATH })
+export async function startWsHost(opts: { port: number; onPeer?: (ws: WebSocket, req: IncomingMessage) => void }): Promise<WsHost> {
+  // One listener serves the extension (BRIDGE_PATH) and, in hub mode, other
+  // local bridge sessions (HUB_PATH, authenticated by the hub itself).
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: opts.port })
 
   // Bind error needs special handling — surface to user clearly and bail.
   await new Promise<void>((resolve, reject) => {
@@ -45,10 +49,7 @@ export async function startWsHost(opts: { port: number }): Promise<WsHost> {
     }
     const onError = (err: Error & { code?: string }) => {
       wss.off('listening', onListening)
-      if (err.code === 'EADDRINUSE') {
-        log.error(`port ${opts.port} in use — another Claude Code session is already running browser-use. Only one session at a time in v0.1.`)
-        process.exit(1)
-      }
+      // EADDRINUSE is handled by the caller (hub.ts joins the running hub).
       reject(err)
     }
     wss.once('listening', onListening)
@@ -84,6 +85,9 @@ export async function startWsHost(opts: { port: number }): Promise<WsHost> {
   }
 
   wss.on('connection', (ws, req) => {
+    const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+    if (path === HUB_PATH && opts.onPeer) return opts.onPeer(ws, req)
+    if (path !== BRIDGE_PATH) { ws.close(1008, 'unknown path'); return }
     if (active && active.readyState === active.OPEN) {
       // Last-connection-wins: a fresh extension (e.g. after a reload) takes
       // over from the previous socket. Flush in-flight calls so callers fail

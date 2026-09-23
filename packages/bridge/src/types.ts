@@ -5,6 +5,7 @@
 export const BRIDGE_PROTOCOL_VERSION = 1
 export const DEFAULT_PORT = 17329
 export const BRIDGE_PATH = '/mcp'
+export const HUB_PATH = '/peer'
 
 export interface BridgeHello {
   v: 1

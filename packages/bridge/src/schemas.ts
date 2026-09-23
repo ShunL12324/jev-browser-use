@@ -9,7 +9,7 @@
 import { z } from 'zod'
 
 const TabIdShape = {
-  tabId: z.number().int().optional().describe('Specific tab id to act on. Defaults to active tab.')
+  tabId: z.number().int().optional().describe('Specific tab id to act on. Defaults to the current tab of this session (the last one it opened or switched to).')
 }
 
 const TargetShape = {
@@ -218,7 +218,7 @@ export const Descriptions: Record<ToolKey, string> = {
   upload_file: 'Upload base64-encoded file(s) to an <input type=file>. Provide payloads inline.',
   wait_for: 'Wait until a condition holds: text appears, ref exists, URL matches, or an outgoing request URL matches. Plain sleep if no condition is set.',
   scroll: 'Scroll the page. Relative (dx/dy), absolute (y), into-view (ref), or sweep mode (until:page_end with pauses for lazy load).',
-  tabs: 'Tab management: list, switch, new, close. New tabs always open in background — call switch separately to bring forward.',
+  tabs: 'Tab management: list, switch, new, close. Tabs are scoped to this MCP session: new tabs open in a dedicated "Jev agent" window, and every tool reaches only tabs this session opened (or tabs opened from them).',
   network_log: 'Get recent network entries (fetch + XHR) for the active tab. Captured via in-page monkey-patch.',
   eval_js: 'Evaluate a JS expression in the page MAIN world. Use only for things you can\'t do via the other tools — DOM manipulation, framework state inspection, etc.',
   inspect: 'Read fields (text, value, tag, role, html, attributes, …) from an element by ref. Useful for checking state after an interaction.',

@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { startWsHost } from './ws-host.js'
+import { startBrowserHost } from './hub.js'
 import { startMcpServer } from './mcp-server.js'
 import { DEFAULT_PORT } from './types.js'
 import { log } from './log.js'
@@ -18,7 +18,7 @@ async function main() {
   }
 
   const version = readPkgVersion()
-  const host = await startWsHost({ port })
+  const host = await startBrowserHost({ port })
   await startMcpServer({ host, version })
 
   // Graceful shutdown when Claude Code closes stdio.
