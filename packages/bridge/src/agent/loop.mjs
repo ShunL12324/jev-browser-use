@@ -12,18 +12,21 @@ const identity = page => JSON.stringify([page.documentId, page.url, page.element
 export async function runTask(task, { call, ask, handoff, emit = () => {}, signal, files = () => { throw new RunError('FILE_UNAUTHORIZED', 'No file manifest.') } }) {
   const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
   const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
+  const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
   let tabId, page, agentStart, stalls = 0, stallHandoffs = 0
   const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }
   const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, metrics: m, ...extra } }
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
   const observe = async () => {
     for (let attempt = 0; ; attempt++) {
-      try { page = await s1({ action: 'agent_observe', limit: 400 }, 'observeMs'); break } catch (error) {
+      try { page = await s1({ action: 'agent_observe', limit: 160 }, 'observeMs'); break } catch (error) {
         // A navigation can detach the content script; retry the read only.
-        if (attempt >= 40 || !['SEND_MESSAGE_FAILED', 'NO_RECEIVER', 'TIMEOUT'].includes(error.code) && !/receiving end|message port|context invalidated/i.test(error.message ?? '')) throw error
+        if (attempt >= 150 || !['SEND_MESSAGE_FAILED', 'NO_RECEIVER', 'TIMEOUT'].includes(error.code) && !/receiving end|message port|context invalidated/i.test(error.message ?? '')) throw error
         await delay(100, undefined, { signal })
       }
     }
+    // Secret plaintext typed into a non-password field must not re-enter state.
+    for (const secret of secrets) { page.text = page.text.split(secret).join('‹secret›'); for (const e of page.elements) if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›') }
     emit({ event: 'observation', documentId: page.documentId, url: page.url, elements: page.elements.length, omitted: page.omitted, textChars: page.text.length })
     return page
   }
@@ -117,7 +120,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     tabId = opened.tabId
     if (!Number.isInteger(tabId)) throw new RunError('TAB', 'New tab did not return an id.')
     emit({ event: 'tab', tabId })
-    await timed('navigationMs', () => call('navigate', { tabId, url: task.startUrl, timeoutMs: 15000 }, signal))
+    // A slow load event is not fatal: observation retries until the document answers.
+    await timed('navigationMs', () => call('navigate', { tabId, url: task.startUrl, timeoutMs: 15000 }, signal)).catch(error => { if (error.code !== 'TIMEOUT') throw error; emit({ event: 'navigation_timeout' }) })
     agentStart = now()
     await observe()
     for (;;) {
@@ -181,8 +185,12 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       m.decisions[level] = (m.decisions[level] ?? 0) + 1
       const repeatKey = JSON.stringify([page.marker, op, id])
       repeats.set(repeatKey, (repeats.get(repeatKey) ?? 0) + 1)
+      // Unresolved inputs (conflict/low probability/invalid) must not be skipped
+      // over by advancing: route R2+ steps to the caller instead.
+      const unresolved = drops.filter(d => d.reason !== 'not_now')
       if (postBatch && (level === 'R3' || p < (GATES[level] ?? 0) || !el && id)) { emit({ event: 'post_batch', skipped: level }); continue }
-      let why = op === 'BLOCKED' ? 'model_blocked' : p < (GATES[level] ?? 0) ? `p=${p.toFixed(2)} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress' : null
+      let why = op === 'BLOCKED' ? 'model_blocked' : p < (GATES[level] ?? 0) ? `p=${p.toFixed(2)} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress'
+        : unresolved.length && ['R2', 'R3'].includes(level) ? `unresolved inputs: ${unresolved.map(d => d.valueId).join(', ')}` : null
       if (why === 'no_progress' && ++stallHandoffs > 2) return result('blocked', { reason: 'no_progress' })
       // Below a gate, first try the safest informative step the model also
       // considered (scroll/wait, R0), once, before a caller round trip.

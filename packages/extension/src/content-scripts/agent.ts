@@ -17,7 +17,7 @@ const editable = (el: Element) => el instanceof HTMLTextAreaElement || el instan
 // Target plus nearby form/dialog/row text: unrelated page updates stay fresh.
 function guard(el: Element) {
   const f = facts(el), scope = el.closest('form,dialog,[role="dialog"],fieldset,li,tr,[role="row"],[role="listbox"]') ?? el.parentElement
-  return hash(JSON.stringify([f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.readonly, f.context, f.dialog, (scope as HTMLElement | null)?.innerText?.slice(0, 2000) ?? '']))
+  return hash(JSON.stringify([f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.readonly, f.context, f.dialog, scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
 }
 function visibleText(limit = 6000) {
   const out: string[] = []; let length = 0
@@ -36,9 +36,12 @@ function visibleText(limit = 6000) {
   if (document.body) visit(document.body)
   return out.join('\n').slice(0, limit)
 }
+// Elements within one viewport height of the visible area, nearest first,
+// capped; the rest is reported as omitted (reachable by scrolling).
 function observe(limit: number) {
   const snapshot = buildSnapshot({ budget: limit })
-  const elements = snapshot.interactables.map(it => {
+  const near = snapshot.interactables.filter(it => { const r = findByRef(it.ref)!.getBoundingClientRect(); return r.bottom > -innerHeight && r.top < 2 * innerHeight })
+  const elements = near.map(it => {
     const el = findByRef(it.ref)!, f = facts(el), r = el.getBoundingClientRect()
     const input = el instanceof HTMLInputElement ? el : null
     return { ref: it.ref, role: f.role, name: f.name, tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.value,
@@ -52,7 +55,7 @@ function observe(limit: number) {
   elements.sort((a, b) => a.top - b.top || a.left - b.left)
   const marker = hash(JSON.stringify([location.href, scrollY, elements.map(e => [e.ref, e.role, e.name, e.value, e.checked, e.expanded, e.disabled])]))
   return { ok: true, documentId, url: location.href, title: document.title, readyState: document.readyState, text: visibleText(),
-    scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - snapshot.coverage.returned, marker }
+    scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - near.length, marker }
 }
 const reject = (code: string) => ({ ok: true, execution: 'not_sent', code })
 function reachable(el: Element) {
