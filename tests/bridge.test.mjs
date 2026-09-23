@@ -51,8 +51,9 @@ test('real stdio MCP process relays calls, errors, and heartbeat to a simulated 
   try {
     await client.connect(transport)
     const { tools } = await client.listTools()
-    assert.equal(tools.length, 19)
-    assert.equal(tools.filter(tool => tool.name.startsWith('browser_')).length, 18)
+    assert.equal(tools.length, 20)
+    assert.equal(tools.filter(tool => tool.name.startsWith('browser_') && tool.name !== 'browser_task').length, 18)
+    assert.ok(tools.some(tool => tool.name === 'browser_task'))
     assert.ok(tools.some(tool => tool.name === 'jev_run'))
     const rejected = await client.callTool({ name: 'jev_run', arguments: { goal: 'No action', startUrl: 'https://example.com/', scenario: 'A', seed: 'test' } })
     assert.equal(JSON.parse(rejected.content[0].text).code, 'EXPERIMENT_ORIGIN')

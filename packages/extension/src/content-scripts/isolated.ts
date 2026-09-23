@@ -1,4 +1,5 @@
 import { handleS1 } from './s1'
+import { handleAgent } from './agent'
 import { documentId } from './document'
 // ISOLATED-world content script — runs in every frame at document_start.
 //
@@ -108,7 +109,7 @@ function isEnvelope(msg: unknown): msg is CSRequestEnvelope {
 
 async function handle(msg: CSRequestEnvelope): Promise<unknown> {
   switch (msg.op) {
-    case 's1': { await whenReady(); return handleS1(msg.request) }
+    case 's1': { await whenReady(); return String(msg.request.action).startsWith('agent_') ? handleAgent(msg.request as never) : handleS1(msg.request) }
     case 'snapshot': {
       await whenReady()
       return buildSnapshot({ budget: msg.budget })

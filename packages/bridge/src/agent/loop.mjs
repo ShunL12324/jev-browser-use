@@ -1,0 +1,210 @@
+// browser_task decision loop: observe → one Jev request → policy → guarded
+// execution → event-driven settle. Executed actions are never replayed.
+import { setTimeout as delay } from 'node:timers/promises'
+import { RunError } from '../jev/core.mjs'
+import { build, invalidAnswers } from './jev.mjs'
+import { bindCandidates, describe, tier, irreversible, GATES, norm } from './space.mjs'
+
+const now = () => performance.now()
+const originOf = url => { try { return new URL(url).origin } catch { return null } }
+const identity = page => JSON.stringify([page.documentId, page.url, page.elements.map(e => [e.ref, e.role, e.name, e.context]).sort((a, b) => a[0] < b[0] ? -1 : 1)])
+
+export async function runTask(task, { call, ask, handoff, emit = () => {}, signal, files = () => { throw new RunError('FILE_UNAUTHORIZED', 'No file manifest.') } }) {
+  const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
+  const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
+  let tabId, page, agentStart, stalls = 0, stallHandoffs = 0
+  const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }
+  const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, metrics: m, ...extra } }
+  const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
+  const observe = async () => {
+    for (let attempt = 0; ; attempt++) {
+      try { page = await s1({ action: 'agent_observe', limit: 400 }, 'observeMs'); break } catch (error) {
+        // A navigation can detach the content script; retry the read only.
+        if (attempt >= 40 || !['SEND_MESSAGE_FAILED', 'NO_RECEIVER', 'TIMEOUT'].includes(error.code) && !/receiving end|message port|context invalidated/i.test(error.message ?? '')) throw error
+        await delay(100, undefined, { signal })
+      }
+    }
+    emit({ event: 'observation', documentId: page.documentId, url: page.url, elements: page.elements.length, omitted: page.omitted, textChars: page.text.length })
+    return page
+  }
+  const toCaller = async (kind, body) => {
+    if (task.llm === 'none' && !['confirm', 'credentials'].includes(kind)) return { unavailable: true }
+    m.handoffs++; m.handoffKinds[kind] = (m.handoffKinds[kind] ?? 0) + 1
+    const request = { kind, ...body, observationSummary: { url: page.url, title: page.title, visibleText: page.text.slice(0, 3000) } }
+    emit({ event: 'handoff', request })
+    const answer = await timed('handoffWaitMs', () => handoff(request))
+    emit({ event: 'handoff_answer', kind, answer })
+    return answer ?? {}
+  }
+  const confirm = async (question, reason) => task.irreversible === 'deny' && reason !== 'allow_origin' ? { deny: true } : toCaller('confirm', { question, reason, expects: { approve: 'boolean' } })
+
+  // Executes one operation on the current page, then settles and re-observes.
+  const exec = async (op, el, args = {}, valueId, quick = false) => {
+    const before = page
+    const request = { action: 'agent_execute', documentId: page.documentId, url: page.url, op, ...(el ? { ref: el.ref, guard: el.guard } : {}), ...args }
+    if (op === 'upload') { request.files = [files(args.fileId)]; delete request.fileId }
+    emit({ event: 'execute', op, ref: el?.ref, name: el?.name, valueId })
+    let res
+    try { res = await s1(request, 'execMs') } catch (error) { emit({ event: 'outcome', execution: 'unknown', code: error.code }); throw new RunError('OUTCOME_UNKNOWN', 'Execution transport failed; the action is not replayed.') }
+    if (res.execution === 'not_sent') { m.stale++; emit({ event: 'outcome', execution: 'not_sent', code: res.code }); await observe(); return { sent: false, code: res.code } }
+    m.steps++
+    let settled
+    try { settled = await s1({ action: 'agent_settle', op, ref: el?.ref, quick }, 'settleMs') } catch { settled = { navigating: true } }
+    if (res.crossDocument || settled.navigating) {
+      // Wait for the next document instead of deciding on the unloading one.
+      const deadline = now() + 15000
+      do { await delay(80, undefined, { signal }); await observe() } while (page.documentId === before.documentId && now() < deadline)
+    } else await observe()
+    const changed = page.documentId !== before.documentId || page.marker !== before.marker
+    const after = page.elements.find(e => e.ref === el?.ref)
+    const postcondition = !valueId ? undefined : page.documentId !== before.documentId ? 'unknown'
+      : op === 'type' ? (after?.value === args.text ? 'met' : 'unmet') : op === 'select' ? (after?.value === args.value ? 'met' : 'unmet')
+      : op === 'check' ? (after?.checked === args.checked ? 'met' : 'unmet') : op === 'upload' ? (after?.files ? 'met' : 'unmet') : 'unknown'
+    const entry = { op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, navigated: page.documentId !== before.documentId }
+    history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
+    stalls = changed || op === 'wait' ? 0 : stalls + 1
+    return { sent: true, ...entry }
+  }
+  const OP = { CLICK: 'click', PRESS_ENTER: 'key', SCROLL_DOWN: 'scroll_down', SCROLL_UP: 'scroll_up', WAIT: 'wait', GO_BACK: 'back' }
+  // Runs a model- or caller-selected operation after its risk checks.
+  const act = async (op, target, el) => {
+    if (op === 'DONE') return result('done', { verification: 'model_done' })
+    if (op === 'TYPE_TEXT') {
+      const key = norm(`${el.name}|${el.context?.join('|')}`)
+      let text = textCache.get(key)
+      if (text === undefined) {
+        const answer = await toCaller('text', { question: `Text to type into this field for the goal: ${describe(el)}`, field: { id: el.ref, label: el.name, role: el.role, value: el.value, context: el.context }, expects: { text: 'string' } })
+        if (answer.unavailable) return result('blocked', { reason: 'needs_text' })
+        if (typeof answer.text !== 'string' || !answer.text || answer.text.length > 2000 || /[\u0000-\u001f]/.test(answer.text)) return result('blocked', { reason: 'no_text' })
+        text = answer.text; textCache.set(key, text)
+      }
+      await exec('type', el, { text }); return
+    }
+    if (op === 'SELECT') { await exec('select', el, { value: target.value }); return }
+    if (el?.href && !allowed.has(originOf(el.href))) {
+      const ok = await confirm(`Allow this task to open ${originOf(el.href)}? Link: ${describe(el)}`, 'allow_origin')
+      if (!ok.approve) return result('blocked', { reason: 'origin_denied' })
+      allowed.add(originOf(el.href))
+    }
+    const risk = el && ['CLICK', 'PRESS_ENTER'].includes(op) && irreversible(el, page)
+    if (risk) {
+      const ok = await confirm(`Irreversible action? ${op} ${describe(el)} on ${page.url}`, risk)
+      emit({ event: 'confirm', risk, ref: el.ref, approve: !!ok.approve })
+      if (ok.deny) return result('needs_confirmation', { pending: describe(el) })
+      if (!ok.approve) return result('blocked', { reason: 'confirmation_denied' })
+    }
+    await exec(OP[op], el, op === 'PRESS_ENTER' ? { key: 'Enter' } : {})
+  }
+  const choose = async (answers, built, why) => {
+    const options = []
+    for (const [op, pOp] of Object.entries(answers.operation.probabilities)) {
+      const head = answers[`target_${op}`]
+      const criteria = built.payload.questions[`target_${op}`]?.criteria
+      if (criteria) for (const id of Object.keys(criteria)) options.push({ id: `${op}:${id}`, p: pOp * (head?.probabilities?.[id] ?? 0), label: `${op} ${criteria[id]}` })
+      else options.push({ id: op, p: pOp, label: `${op}: ${built.ops[op]}` })
+    }
+    const top = options.sort((a, b) => b.p - a.p).slice(0, 6).map(o => ({ id: o.id, label: o.label, jevProbability: Math.round(o.p * 100) / 100 }))
+    const answer = await toCaller('choose', { question: `Jev is uncertain (${why}). Choose the next operation for the goal, or none.`, options: top, expects: { choice: 'option id or none' } })
+    if (answer.unavailable) return { stop: result('blocked', { reason: why }) }
+    const picked = top.find(o => o.id === answer.choice)
+    if (!picked) return { stop: result('blocked', { reason: 'caller_declined' }) }
+    const [op, id] = picked.id.split(/:(.*)/s)
+    return { op, id }
+  }
+
+  try {
+    const opened = await timed('navigationMs', () => call('tabs', { action: 'new', url: 'about:blank' }, signal))
+    tabId = opened.tabId
+    if (!Number.isInteger(tabId)) throw new RunError('TAB', 'New tab did not return an id.')
+    emit({ event: 'tab', tabId })
+    await timed('navigationMs', () => call('navigate', { tabId, url: task.startUrl, timeoutMs: 15000 }, signal))
+    agentStart = now()
+    await observe()
+    for (;;) {
+      signal?.throwIfAborted()
+      if (m.steps >= task.budgets.maxSteps) return result('blocked', { reason: 'step_limit' })
+      if (m.jevRequests >= task.budgets.maxJevRequests) return result('blocked', { reason: 'jev_request_limit' })
+      if (!allowed.has(originOf(page.url))) {
+        const ok = await confirm(`The task tab reached ${originOf(page.url)}, which is not allowed. Allow it for this task?`, 'allow_origin')
+        if (!ok.approve) return result('blocked', { reason: 'origin_denied' })
+        allowed.add(originOf(page.url))
+      }
+      const built = build(page, task, history)
+      m.jevRequests++
+      const response = await timed('jevMs', () => ask(built.payload, { signal }))
+      if (Number.isFinite(response.usage?.input_tokens)) m.jevInputTokens += response.usage.input_tokens; else m.jevUnknownUsage++
+      const answers = response.answers, invalid = invalidAnswers(built.payload.questions, answers)
+      if (invalid.has('operation')) throw new RunError('BAD_ANSWER', 'Invalid operation answer; nothing executed.')
+      if (invalid.size) emit({ event: 'invalid_answers', ids: [...invalid] })
+      // Bindings first: each supplied input had its own question.
+      const accepted = [], drops = []
+      for (const [q, b] of Object.entries(built.binds)) {
+        const a = answers[q], p = a?.probabilities?.[a.choice]
+        if (invalid.has(q)) drops.push({ valueId: b.valueId, reason: 'invalid_answer' })
+        else if (a.choice === 'not_now') drops.push({ valueId: b.valueId, reason: 'not_now', p })
+        else if (p < 0.6) drops.push({ valueId: b.valueId, reason: 'low_probability', p, ref: a.choice })
+        else accepted.push({ ...b, ref: a.choice, p })
+      }
+      const perRef = accepted.reduce((c, b) => c.set(b.ref, (c.get(b.ref) ?? 0) + 1), new Map())
+      const bindings = accepted.filter(b => perRef.get(b.ref) === 1 || !drops.push({ valueId: b.valueId, reason: 'binding_conflict', ref: b.ref }))
+        .sort((a, b) => page.elements.findIndex(e => e.ref === a.ref) - page.elements.findIndex(e => e.ref === b.ref))
+      const opAnswer = answers.operation, head = invalid.has(`target_${answers.operation.choice}`) ? undefined : answers[`target_${opAnswer.choice}`]
+      emit({ event: 'decision', bytes: built.bytes, questions: Object.keys(built.payload.questions).length, binds: Object.keys(built.binds).length, bindTargets: Object.values(built.binds).map(b => Object.keys(b.candidates).length),
+        accepted: bindings.map(b => ({ valueId: b.valueId, ref: b.ref, p: b.p })), drops, operation: opAnswer.choice, pOp: opAnswer.probabilities[opAnswer.choice], target: head?.choice, pTarget: head?.probabilities[head.choice], usage: response.usage })
+      let postBatch = false
+      if (bindings.length) {
+        const judged = page
+        let stopped = false
+        for (const [i, b] of bindings.entries()) {
+          if (page !== judged && identity(page) !== identity(judged)) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'identity_changed' }); stopped = true; break }
+          const used = new Set(history.filter(h => h.valueId && h.postcondition === 'met').map(h => h.ref))
+          const c = bindCandidates(page, task.inputs[b.valueId], used)[b.ref], el = page.elements.find(e => e.ref === b.ref)
+          if (!c || !el) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'not_eligible' }); stopped = true; break }
+          const r = await exec(c.op, el, c.op === 'upload' ? { fileId: task.inputs[b.valueId].fileId } : { text: c.text, value: c.value, checked: c.checked }, b.valueId, i < bindings.length - 1)
+          if (!r.sent || r.postcondition === 'unmet' || r.navigated) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: r.sent ? r.postcondition === 'unmet' ? 'postcondition_unmet' : 'navigated' : 'not_sent' }); stopped = true; break }
+        }
+        // The operation head was asked for the step after this cycle's
+        // inputs. Consume it only when every judged input settled cleanly on
+        // an unchanged page; anything else is decided by a fresh request.
+        const target = built.targets[opAnswer.choice]?.[head?.choice]
+        postBatch = !stopped && !drops.some(d => d.reason !== 'not_now') && identity(page) === identity(judged) && !['DONE', 'WAIT'].includes(opAnswer.choice)
+          && !(target && bindings.some(b => b.ref === target.ref))
+        emit({ event: 'post_batch', consumed: postBatch })
+        if (!postBatch) continue
+      }
+      let op = opAnswer.choice, id = head?.choice, el
+      if (invalid.has(`target_${op}`)) throw new RunError('BAD_ANSWER', `Invalid ${op} target answer; nothing executed.`)
+      const pOp = opAnswer.probabilities[op], p = Math.min(pOp, head ? head.probabilities[id] : 1)
+      const target = id ? built.targets[op][id] : null
+      el = target && page.elements.find(e => e.ref === target.ref)
+      const level = op === 'DONE' || op === 'BLOCKED' ? 'R2' : tier(op, el, page)
+      m.decisions[level] = (m.decisions[level] ?? 0) + 1
+      const repeatKey = JSON.stringify([page.marker, op, id])
+      repeats.set(repeatKey, (repeats.get(repeatKey) ?? 0) + 1)
+      if (postBatch && (level === 'R3' || p < (GATES[level] ?? 0) || !el && id)) { emit({ event: 'post_batch', skipped: level }); continue }
+      let why = op === 'BLOCKED' ? 'model_blocked' : p < (GATES[level] ?? 0) ? `p=${p.toFixed(2)} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress' : null
+      if (why === 'no_progress' && ++stallHandoffs > 2) return result('blocked', { reason: 'no_progress' })
+      // Below a gate, first try the safest informative step the model also
+      // considered (scroll/wait, R0), once, before a caller round trip.
+      const fallback = why && why !== 'no_progress' && !history.at(-1)?.fallback && ['SCROLL_DOWN', 'SCROLL_UP', 'WAIT'].filter(o => built.ops[o] && opAnswer.probabilities[o] >= 0.15).sort((a, b) => opAnswer.probabilities[b] - opAnswer.probabilities[a])[0]
+      if (fallback) {
+        emit({ event: 'route', why, op, id, p, level, fallback })
+        await act(fallback, null, null); history.at(-1).fallback = true
+        continue
+      }
+      if (why) {
+        emit({ event: 'route', why, op, id, p, level })
+        const picked = await choose(answers, built, why)
+        if (picked.stop) return picked.stop
+        if (picked.op === 'BLOCKED') return result('blocked', { reason: 'caller_blocked' })
+        stalls = 0
+        op = picked.op; id = picked.id
+        el = id && page.elements.find(e => e.ref === built.targets[op][id].ref)
+      }
+      const outcome = await act(op, id ? built.targets[op][id] : null, el)
+      if (outcome) return outcome
+    }
+  } catch (error) {
+    return result('error', { code: error.code ?? error.name, message: error instanceof RunError ? error.message : 'browser_task stopped without replay.' })
+  }
+}
