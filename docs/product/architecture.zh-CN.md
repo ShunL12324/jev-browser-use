@@ -184,6 +184,20 @@ observe(任务 tab 集合, 所有 frame) → 元素表 + 可见文本块
 | R2 导航/非最终提交 | 链接、Continue、搜索按钮 | p ≥ 0.6 执行；低于则 `choose` handoff，列出前 5 项 |
 | R3 不可逆 | 下单、支付、预订、发送、删除、最终提交 | 不论概率一律 `confirm`（§4.2）；`irreversible:"deny"` 时终止为 needs_confirmation |
 
+**CLICK/PRESS_KEY 的确定性分级**（按顺序，第一条命中即定级；只用观察到的元素事实）：
+
+| # | 条件 | 级别 |
+| --- | --- | --- |
+| 1 | §4.2 不可逆分类命中 | R3 |
+| 2 | `summary`；或有合法 `aria-expanded`；或 `aria-haspopup` 为合法 token；或 role=tab | R0（展开/收起/切换视图） |
+| 3 | role 为 option、menuitemradio、menuitemcheckbox、checkbox、radio、switch；或原生 checkbox/radio | R1（改变一个值） |
+| 4 | `a[href]` 且只改 fragment（同文档 `#…`）；或 role=link 无 href | R0 |
+| 5 | `a[href]` 指向其它文档 | R2（导航；目标 origin 另按 §4.1 检查） |
+| 6 | 原生 submit（`button` 默认/`type=submit`、`input type=submit/image`），或 PRESS_KEY Enter 作用于属于 form 的输入框 | R2（表单提交，非最终） |
+| 7 | 其它 button/role=button/可点击元素 | R2（效果未知，按导航对待） |
+
+HOVER、SCROLL、WAIT、SWITCH_TAB 固定 R0；TYPE_TEXT、SELECT、SET_CHECKED、UPLOAD、bind 固定 R1（UPLOAD 目标 origin 另按 §4.1）。
+
 说明：概率是候选间的相对偏好，不是准确率；这些数都是路由初值，不是校准结论。r2 已执行的导航最低只有 0.64–0.68，边际很薄，所以 R2 低于门槛时改为 handoff，而不是像旧 S1 那样 `UNCERTAIN` 失败。P1a 用 T33 套件的真实运行，统计每级门槛下的错误执行率和 handoff 率，再定最终值；调整门槛必须附数据，不能静默修改。连续 3 个周期页面语义无变化（不计 WAIT）时，走 `choose`/`question` handoff 一次；之后仍无进展则 blocked。
 
 ### 2.4 文本从哪里来（handoff 最小化）
@@ -197,7 +211,11 @@ handoff 一次就是调用方的一个完整回合（数秒），是速度的最
 
 ### 2.5 信息查找与答案
 
-目标需要回答时（由 goal 的 `done` Noul 和调用方意图决定；`start` 可带 `answerFormat`），代码把可见文本切成块（段落、表格行、列表项、描述列表，每块 ≤400 字符，带 blockId）。与 operation 同一次请求里加一道 `answer_block` Choice（候选为块 + `not_here`）。选中后：provider/handoff 模式由 LLM 用选中的块写答案（`extract` handoff 附带块原文）；`llm:none` 模式直接返回块原文作为答案。结果带 `evidence` 引用，`verification:"evidence_quoted"`。跨页收集（比较多个结果）在历史中保留已选块，最多 20 块。
+目标需要回答时（由 goal 的 `done` Noul 和调用方意图决定；`start` 可带 `answerFormat`），代码把可见文本切成块（段落、表格行、列表项、描述列表，每块 ≤400 字符，带 blockId）。与 operation 同一次请求里加一道 `answer_block` Choice（候选为块 + `not_here`）。选中后：provider/handoff 模式由 LLM 用选中的块写答案（`extract` handoff 附带块原文）；`llm:none` 模式直接返回块原文作为答案。结果带 `evidence` 引用，`verification:"evidence_quoted"`。跨页收集（比较多个结果）在历史中保留已选块。
+
+**需要计算的答案**（计数、比较、求和、最大/最小，跨行、跨滚动或跨页）不能由 Jev 选块完成。流程：Jev 仍负责导航到相关区域、翻页/滚动（这些是普通操作）；代码把每次观察中相关区域（Jev 选择的 region，或整页）的全部块收集进任务的证据集；Jev 的 `done` Noul 判断“所需数据已全部可见/已收集”后，发 `extract` handoff，附带证据集，由调用方 LLM 计算并回答（回答需引用 blockId）。`llm:none` 模式下此类任务**按设计失败**（报告为 blocked，原因 `needs_llm_computation`）。
+
+**证据集上限与溢出**：每次 Jev 请求中的 `answer_block` 候选 ≤254 块（超出按 §3.3 region 分层）；任务证据集在服务内存中最多保留 400 块或 60,000 字符（按内容键去重）。超出时不静默丢弃：停止继续收集，发 `extract` handoff，标注 `truncated:true`、已收集数与估计剩余量，由调用方决定继续（可给出更窄的范围）或接受部分答案。
 
 ### 2.6 成本与延迟预期
 
@@ -245,21 +263,35 @@ handoff 一次就是调用方的一个完整回合（数秒），是速度的最
 
 ### 4.1 站点许可
 
-`allowedOrigins` 在 `start` 时必填（支持显式 `https://*.example.com`）。`s1-service.mjs:assertS1Origin` 的 17430/17431 锁去掉，只有测试夹具继续使用。导航或新 tab 到许可之外：只读 GET 导航（链接）用 `confirm` handoff 申请加入许可；表单提交、请求到许可外一律拒绝。许可只在本任务会话内有效。
+`allowedOrigins` 在 `start` 时必填（支持显式 `https://*.example.com`）。`s1-service.mjs:assertS1Origin` 的 17430/17431 锁去掉，只有测试夹具继续使用。许可只在本任务会话内有效。规则按**动作所在文档的 origin**判断：
+
+| 情况 | 规则 |
+| --- | --- |
+| 顶层 tab 导航（链接、重定向）到许可外 | 导航本身由站点发起时无法阻止；到达后该 tab 暂停：只观察、不执行，发 `confirm` handoff “允许本任务使用 origin X？”。批准后加入许可，拒绝则 GO_BACK 或 blocked |
+| 任务 tab 打开的新 tab/窗口（含 OAuth 类弹窗）到许可外 | 同上：纳入任务但暂停，confirm 后才可操作 |
+| 许可顶层文档中的其它 origin iframe | 观察（内容进入元素表，标出 frame origin）；R0/R1 操作可执行；R2/R3 需要该 frame origin 在许可内，否则先 confirm 加入许可 |
+| 许可外 iframe 中的密码/支付字段 | 不施加秘密；secretRef 绑定 origin（§4.3），不同 origin 的 frame 拿不到 |
+| 表单提交/上传到许可外 action | R2 以上动作的目标 action/URL 不在许可内时拒绝执行，走 confirm |
+
+所以 OAuth 类流程的完成方式是：弹窗到身份提供方 → confirm 允许该 origin → 用绑定该 origin 的 secretRef 登录（或由用户在弹窗中手动完成，服务等待弹窗关闭）。
 
 ### 4.2 不可逆动作
 
 分类同时使用代码特征和 Jev，任何一方认为不可逆就确认（宁可多问）：
 
-- 代码特征：所在 form 包含 password/支付卡字段；按钮 type=submit 且是多步流程的最后一步（没有后续步骤指示）；名称或邻近文本匹配多语言关键词表（buy、pay、place order、book、confirm、send、delete、remove、unsubscribe、提交、支付、下单、删除…）；`window.confirm` 被触发。
+- 代码特征（任一命中即 R3）：
+  - 提交会带上支付卡字段（`autocomplete=cc-*` 或同类 name）；
+  - `window.confirm` 被触发（对话框本身即确认点）；
+  - 名称匹配多语言关键词表（buy、pay、place order、book、send、delete、remove、unsubscribe、支付、下单、删除…），**且**目标是提交类（上表规则 6）或位于 modal dialog 中，或目标 form 的 method 为 POST。
+  - 单独的关键词（例如 “Confirm address”、“Book a demo” 链接）不触发；`confirm`/`submit`/`提交` 这类泛词只在同时满足“流程最后一步”（没有后续步骤指示、没有 Continue/Next）时触发。
 - Jev：同一请求内的 Noul：“执行这个目标会提交交易、发送消息、删除或产生不可撤销的外部效果吗？”（只对 R2 候选中的前几个问，控制题数）。
 - 确认时 handoff 给出动作、目标、所在页面、将提交的字段值（秘密脱敏）。批准只对这一次动作有效。`window.confirm`/`alert`/`prompt` 的已有 MAIN world 覆盖（`content-scripts/main.ts`）改为：确认对话框按不可逆处理。
 
-误判的代价不对称：漏判就是真实后果，所以 P3 评测要报告漏判率，要求为 0（每个不可逆提交都必须先有确认，T33 站点记录提交时间戳，§6.4）。
+误判的代价不对称：漏判就是真实后果，所以 P3 评测要报告漏判率，要求为 0（每个不可逆提交都必须先有确认，T33 站点记录提交时间戳，§6.4）。误报也有代价：每次多余确认就是调用方一个回合。P3 同时报告误报确认率（非最终步骤上的 confirm handoff / 全部 confirm handoff）及其 handoffWaitMs 总和，目标：交易类任务中位每任务 ≤1 次多余确认；超出时调整规则，并附数据。
 
 ### 4.3 秘密与凭据
 
-`inputs.*.secretRef` 由宿主从秘密清单解析（与文件 manifest 同一机制）。明文只在执行请求中出现一次，不进入 Jev state（显示为 `‹secret:shop.password›`）、LLM 上下文、handoff、trace 或结果。password 字段只能由 bind 施加 secretRef 值，不能 TYPE_TEXT 生成值。T33 harness 会扫描所有输出中的明文，发现即判失败。
+`inputs.*.secretRef` 由宿主从秘密清单解析（与文件 manifest 同一机制）。清单中每个秘密绑定一个或多个 origin，只能施加到这些 origin 文档中的字段。明文只在执行请求中出现一次，不进入 Jev state（显示为 `‹secret:shop.password›`）、LLM 上下文、handoff、trace 或结果。password 字段只能由 bind 施加 secretRef 值，不能 TYPE_TEXT 生成值。T33 harness 会扫描所有输出中的明文，发现即判失败。
 
 ### 4.4 页面内容
 
@@ -286,7 +318,7 @@ handoff 一次就是调用方的一个完整回合（数秒），是速度的最
 | 对话框、alert、cookie 横幅 | MAIN world 覆盖 alert/confirm/prompt | alert 内容进入观察；confirm 按 §4.2 处理；prompt 需要文本时走 §2.4；cookie 横幅是普通 CLICK 目标，规则里写明“遮挡目标的横幅可以关闭（优先拒绝非必要 cookie）” |
 | 虚拟/无限列表、嵌套滚动 | 无 | 检测可滚动容器（overflow auto/scroll 且可滚动）作为 `SCROLL` 目标；观察标出“容器还有更多内容”；抽取时按内容键跨滚动去重 |
 | 分页 | 普通链接/按钮 | 无特殊代码；抽取历史跨页保留 |
-| 下载 | 没有 `downloads` 权限 | 新增 `downloads` 权限：`chrome.downloads.onCreated/onChanged` 跟踪任务 tab 触发的下载，结果返回文件名、大小、MIME、sha256，内容不进模型 |
+| 下载 | 没有 `downloads` 权限 | 新增 `downloads` 权限：`chrome.downloads.onCreated/onChanged` 跟踪任务 tab 触发的下载，结果返回文件名、大小、MIME、sha256。**小型文本下载作为证据**：MIME 或扩展名为 csv/tsv/txt/json、≤256 KB、来源 URL 在许可 origin 内（或是任务文档的 `blob:`/`data:`）时，由触发下载的文档在页面上下文中用 GET 重新读取同一 URL，按行/记录切成证据块（不可信数据，同 §2.5），供 `answer_block`/`extract` 使用。PDF、Office、压缩包等二进制内容不解析，列为 known-limit（“根据下载文件回答”只支持上述文本格式） |
 | 上传 | 宿主授权 fileId → `actSetFiles` | 沿用。MCP 可以直接传 base64 文件内容（现有 `browser_upload_file`）或 manifest fileId |
 | hover 菜单 | `hover` 工具派发鼠标事件 | `HOVER` 作为 R0 操作 |
 | 键盘控件 | `press_key` 工具 | `PRESS_KEY` 有限键集，作用于目标（带焦点） |
@@ -332,7 +364,20 @@ T33 的能力清单 ID 还没冻结，下表先用类别代号，冻结后逐项
 | P4 困难控件 | 虚拟/无限列表、嵌套滚动、日期选择器、富文本、hover 菜单、键盘控件、拖拽（尽力）、慢加载/错误重试；provider 模式 | VL、NS、FC、HOV、KEY、DRG、SLOW、ERR | 每类 ≥1 个本地站任务，≥4/5 通过；拖拽和需要可信事件的任务单独报告，允许标为 known-limit |
 | P5 成熟度 | 公开只读套件；held-out 变体；token/速度优化；文档 | 全部 | 见下 |
 
-**“95%” 的可检验定义**（master 已接受，权重待 T33 冻结）：T33 清单按常见程度加权。加权 ≥95% 的清单项在 held-out 任务上达到 ≥4/5 成功，其余项有明确的 known-limit 说明（例如 canvas、CAPTCHA、需要视觉的任务）。全套件（本地 + 公开只读）总成功率 ≥90%，且每个失败都有 trace 与根因分类。速度：共享任务中位 agentMs 不慢于 jev-ultrafast。
+**“95%” 的可检验定义**（master 已接受，权重待 T33 冻结）：这是**加权清单覆盖率**，不是“95% 的真实世界场景”。权重来自 T33 清单的判断加基准任务集中的出现频率（有说明，不是普查）；本地站点不是真实世界分布，公开只读任务是唯一的外部样本，单独报告。定义：加权 ≥95% 的清单项在 held-out 任务上达到 ≥4/5 成功，其余项有明确的 known-limit 说明（例如 canvas、CAPTCHA、需要视觉的任务）。全套件（本地 + 公开只读）总成功率 ≥90%，且每个失败都有 trace 与根因分类。速度：共享任务中位 agentMs 不慢于 jev-ultrafast。
+
+**计划运行量与账本**（产品账本，每 1000 次向 master 报告，10000 次硬停）：每个任务 × 每个变体跑 5 次（新 reset，无自动重试，失败保留）。估算（任务数以 T33 冻结为准，每次运行的 Jev 请求按 12–20 次估计）：
+
+| 阶段 | 运行数 | 估计 Jev 请求 |
+| --- | --- | --- |
+| P1a | complex-forms 4 + 共享任务 3×5 + 校准约 30 | 约 800 |
+| P1b | P1a 同组任务在用户 Chrome 上约 25 | 约 400 |
+| P2 | 约 12 任务 × 2 变体 × 5 = 120 | 约 1,800 |
+| P3 | 约 10 × 2 × 5 = 100 | 约 2,000 |
+| P4 | 约 14 × 2 × 5 = 140 | 约 2,800 |
+| 合计 P1–P4 | | 约 7,800 |
+
+P5（全套件含公开任务的复测）会超过 10000 的硬停线，届时需要 master 上调；每次到 1000 的整数倍时的报告在上表中已可预期。
 
 ### 6.4 与 T33 的评测接口（已与 form-validator 约定）
 
@@ -342,7 +387,7 @@ T33 的能力清单 ID 还没冻结，下表先用类别代号，冻结后逐项
 - **秘密**：secretRef 从 harness 秘密清单解析；harness 扫描 trace/结果/handoff 中的明文，泄漏即失败。
 - **不可逆**：站点为每次提交记录服务器时间戳；harness 记录每个 confirm handoff 的时间。通过要求“已提交 == (irreversible=='confirm' 且批准)”，且 confirm 早于提交；`deny` 任务要求无提交，且状态为 needs_confirmation/blocked。
 - **计时边界**：`agentMs` 从第一次决策到终止（与 ultrafast 一致，不含初始导航，含等待与 handoff 时间），`handoffWaitMs` 单列；`e2eMs` 从调用到 oracle 返回；另报 `jevUnknownUsage`、`llmUnknownUsage`，结果内写明边界定义。
-- **jev-ultrafast 适配器**：包装其 `Agent(url, goal)`，指标直接映射（decisions、text_calls、usage）。它需要 harness 启动的 Chromium 的 CDP 端点；如果 browser-harness 不能指定 CDP URL，它只参加 answer/http-oracle 类任务（form-validator 核实）。
+- **jev-ultrafast 适配器**：包装其 `Agent(url, goal)`，指标直接映射（decisions、text_calls、usage）。**未核实**：`/tmp/jev-ultrafast` 没有安装 browser-harness（无 .venv），`browser.py` 通过 `browser_harness.admin.ensure_daemon` 连接 daemon 附着的 Chrome 并 `Target.createTarget`。在核实能否指定 CDP 端点之前，按“它可能需要在自己的、开启远程调试的 Chrome 中运行，page 类 oracle 通过该 CDP 读取”来计划；harness 先让它参加 answer/http-oracle 类任务。它的 TYPE_TEXT 还需要 `TEXT_MODEL_API_KEY`（§0.3）。
 
 ### 6.5 真实端到端测试方法（用户决定，2026-09-24）
 
