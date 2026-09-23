@@ -1,0 +1,25 @@
+{
+  "name": "browser-agent-eval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Runner-agnostic maturity evaluation suite: local sites with server-side oracles, public read-only tasks, harness",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "mechanical": "node mechanical/run-all.mjs",
+    "eval": "node harness/run.mjs",
+    "test:public-sources": "node harness/verify-public.mjs",
+    "coverage-map": "node harness/coverage-map.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "6.0.1",
+    "ajv": "8.17.1",
+    "express": "5.1.0",
+    "vite": "7.1.7",
+    "vue": "3.5.21"
+  },
+  "devDependencies": {
+    "playwright": "1.55.1"
+  }
+}

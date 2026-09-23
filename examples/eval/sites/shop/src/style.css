@@ -1,0 +1,10 @@
+:root{font-family:system-ui,sans-serif;color:#1e2530}body{margin:0;background:#fafaf7}header{display:flex;gap:20px;align-items:center;padding:14px 28px;background:#fff;border-bottom:1px solid #e3e3dc}
+header .brand{font-weight:800;font-size:20px;color:#2d4a7a;text-decoration:none}header nav{display:flex;gap:16px;margin-left:auto}main{max-width:1100px;margin:24px auto;padding:0 20px}
+.layout{display:grid;grid-template-columns:220px 1fr;gap:28px}.alternate .layout{grid-template-columns:1fr 220px}.alternate .layout aside{order:2}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}.card{background:#fff;border:1px solid #e3e3dc;border-radius:10px;padding:14px}.card a{color:#1e2530;font-weight:600}
+button{font:inherit;padding:8px 14px;border-radius:7px;border:1px solid #b9c2cf;background:#fff;cursor:pointer}button.primary{background:#2d4a7a;color:#fff;border-color:#2d4a7a}button[aria-checked=true],button[aria-pressed=true]{outline:3px solid #2d4a7a}
+label{display:flex;flex-direction:column;gap:4px;margin:10px 0;font-size:14px;font-weight:600}input,select{font:inherit;padding:8px;border:1px solid #b9c2cf;border-radius:6px}
+.combo{position:relative}.combo ul{position:absolute;z-index:4;list-style:none;margin:2px 0;padding:4px;background:#fff;border:1px solid #9aa6b8;border-radius:6px;width:100%}.combo li{padding:6px 8px;cursor:pointer}.combo li[aria-selected=true]{background:#e7eefb}
+.error{color:#b3261e;font-size:13px}.modal{position:fixed;inset:0;background:#0007;display:flex;align-items:center;justify-content:center;z-index:10}.modal>div{background:#fff;padding:28px;border-radius:12px;max-width:380px}
+.calendar{border:1px solid #9aa6b8;border-radius:8px;padding:10px;background:#fff;display:inline-block}.calendar table{border-collapse:collapse}.calendar td{padding:2px}.calendar td button{width:38px;padding:6px 0}
+.sentinel{height:40px;text-align:center;color:#778}.row{display:flex;gap:12px;align-items:center}table.cart td{padding:8px;border-bottom:1px solid #eee}.swatches{display:flex;gap:8px}
