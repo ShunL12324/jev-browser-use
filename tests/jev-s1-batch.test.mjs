@@ -10,8 +10,8 @@ const task = (extra = {}) => validateS1Task({ profile: 'complex_forms', decision
 const choiceAnswer = (criteria, pick, p = 1) => ({ type: 'choice', choice: pick, probabilities: Object.fromEntries(Object.keys(criteria).map(k => [k, k === pick ? p : (1 - p) / (Object.keys(criteria).length - 1)])) })
 // Deterministic answerer: bind every question to its first target unless
 // overridden; next picks `next` by target name; Nouls default low.
-const answerer = ({ bind = () => [undefined, 1], next = () => ['none', 1], fit = () => 0, goal = 0 } = {}) => async ({ questions }) => ({ usage: { input_tokens: 10 }, answers: Object.fromEntries(Object.entries(questions).map(([id, q]) => {
-  if (q.type === 'noul') return [id, { type: 'noul', noul: id === 'goal_met' ? goal : fit(q) }]
+const answerer = ({ bind = () => [undefined, 1], next = () => ['none', 1], goal = 0 } = {}) => async ({ questions }) => ({ usage: { input_tokens: 10 }, answers: Object.fromEntries(Object.entries(questions).map(([id, q]) => {
+  if (q.type === 'noul') return [id, { type: 'noul', noul: goal }]
   if (id === 'next') { const [name, p, op] = next(q); const pick = Object.entries(q.criteria).find(([, c]) => (c.target?.name === name && (!op || c.operation === op)) || c.operation === name)?.[0] ?? 'none'; return [id, choiceAnswer(q.criteria, pick, p)] }
   const [pick, p] = bind(q); return [id, choiceAnswer(q.criteria, pick ?? Object.keys(q.criteria)[0], p)]
 })) })
@@ -37,16 +37,16 @@ const run = async (t, p, ask) => { const events = []; let asks = 0; const result
 test('form_batch is opt-in and only valid with complex_forms; default stays single', () => {
   assert.equal(validateS1Task({ goal: 'g', startUrl: origin, allowedOrigins: [origin] }).decision, 'single')
   assert.throws(() => validateS1Task({ goal: 'g', startUrl: origin, allowedOrigins: [origin], decision: 'form_batch' }), { code: 'TASK' })
-  assert.equal(task().minSuitability, 0.8)
+  assert.throws(() => task({ minSuitability: 0.8 }), { code: 'TASK' })
 })
-test('batch compiles one binding question per pending value and keeps inputs out of next/fits', () => {
+test('batch compiles one binding question per pending value and keeps inputs out of next', () => {
   const t = task(), o = adaptObservation(raw([field('e1', 'Name'), field('e2', 'Email'), button('e3', 'Continue')]), 1), set = enumerate(o, t)
   const c = compileBatch(o, t, set)
   assert.deepEqual(Object.values(c.binds).map(b => b.valueId), ['name', 'email'])
   assert.deepEqual(Object.values(c.binds).map(b => b.targets), [1, 1])
   for (const id of Object.keys(c.binds)) assert.deepEqual(Object.keys(c.payload.questions[id].criteria).length, 2)
   assert.ok(Object.values(c.payload.questions.next.criteria).every(x => typeof x === 'string' || !['replace_text', 'select_option', 'set_checked', 'upload_file'].includes(x.operation)))
-  assert.equal(Object.keys(c.fits).length, Object.keys(c.payload.questions.next.criteria).length - 1)
+  assert.ok(!Object.keys(c.payload.questions).some(k => /^f\d/.test(k)))
   assert.equal(c.payload.state.selectionPolicy, 'form_batch_v1')
   assert.ok(c.bytes < 48000)
   assert.throws(() => compileBatch(o, { ...t, decision: 'single' }, set), { code: 'STALE_INTENT' })
@@ -71,7 +71,6 @@ test('decision drops not_now, low probability and conflicting bindings; orders b
     answers[id] = valueId === 'name' ? choiceAnswer(q[id].criteria, first, 0.55) : choiceAnswer(q[id].criteria, first, 0.9)
   }
   answers.next = choiceAnswer(q.next.criteria, 'none')
-  for (const f of Object.keys(c.fits)) answers[f] = { type: 'noul', noul: 0 }
   const d = decideBatch(o, t, set, c, answers)
   assert.deepEqual(d.bindings.map(b => b.valueId), ['zip'])
   assert.deepEqual(d.drops.map(x => [x.valueId, x.reason]).sort(), [['alt', 'binding_conflict'], ['email', 'binding_conflict'], ['name', 'low_probability']])
@@ -79,16 +78,42 @@ test('decision drops not_now, low probability and conflicting bindings; orders b
   answers[zipId] = choiceAnswer(q[zipId].criteria, 'not_now')
   assert.ok(decideBatch(o, t, set, c, answers).drops.some(x => x.valueId === 'zip' && x.reason === 'not_now'))
 })
-test('next policy: choice gate, suitability gate only for argmax fit, else uncertain', () => {
+test('next policy: only the unchanged minProbability gate', () => {
   const t = task({ values: {} }), o = adaptObservation(raw([button('e1', 'Open'), button('e2', 'Continue')]), 1), set = enumerate(o, t), c = compileBatch(o, t, set)
-  const q = c.payload.questions, open = set.candidates.find(x => x.targetId === 'e1').id, cont = set.candidates.find(x => x.targetId === 'e2').id
-  const fitsFor = values => Object.fromEntries(Object.entries(c.fits).map(([f, cid]) => [f, { type: 'noul', noul: values[cid] ?? 0 }]))
-  const decide = (pick, p, fits) => decideBatch(o, t, set, c, { next: choiceAnswer(q.next.criteria, pick, p), goal_met: { type: 'noul', noul: 0 }, ...fitsFor(fits) }).next
-  assert.equal(decide(open, 0.7, {}).basis, 'choice')
-  assert.equal(decide(open, 0.45, { [open]: 0.9, [cont]: 0.3 }).basis, 'suitability')
-  assert.equal(decide(open, 0.45, { [open]: 0.85, [cont]: 0.9 }).basis, 'uncertain')
-  assert.equal(decide(open, 0.45, { [open]: 0.7 }).basis, 'uncertain')
-  assert.equal(decide('none', 0.9, {}).basis, 'none')
+  const q = c.payload.questions, open = set.candidates.find(x => x.targetId === 'e1').id
+  const decide = (pick, p) => decideBatch(o, t, set, c, { next: choiceAnswer(q.next.criteria, pick, p), goal_met: { type: 'noul', noul: 0 } }).next
+  assert.equal(decide(open, 0.6).basis, 'choice')
+  assert.equal(decide(open, 0.59).basis, 'uncertain')
+  assert.equal(decide('none', 0.9).basis, 'none')
+})
+test('reveal replaces scroll_into_view: every target appears at most once in next, none for filled fields', () => {
+  const t = task({ values: { name: value('Alex', 'Name') } })
+  const filled = field('e1', 'Name', { value: 'Alex', centerReachable: false }), cont = button('e2', 'Continue'), vis = button('e3', 'Back')
+  cont.facts.centerReachable = false; vis.facts.centerReachable = true; filled.facts.centerReachable = false
+  const o = adaptObservation(raw([filled, cont, vis]), 1), set = enumerate(o, t)
+  assert.ok(set.candidates.some(c => c.operationId === 'scroll_into_view' && c.targetId === 'e2'))
+  const next = Object.values(compileBatch(o, t, batchSet(o, t, set)).payload.questions.next.criteria).filter(c => typeof c !== 'string')
+  const targets = next.filter(c => c.target !== 'page').map(c => c.target.id)
+  assert.equal(new Set(targets).size, targets.length)
+  assert.ok(!next.some(c => c.operation === 'scroll_into_view'))
+  assert.ok(!targets.includes('e1'))
+  assert.ok(next.some(c => c.operation === 'activate' && c.target.id === 'e2' && c.reveal))
+  assert.deepEqual(next.filter(c => c.target === 'page').map(c => c.operation), ['scroll_down', 'scroll_up', 'wait'])
+})
+test('inputStatus comes from host execution records and shows whether open inputs have a target here', async () => {
+  const t = task({ values: { name: value('Alex', 'Name'), email: value('a@x.test', 'Email'), later: value('x', 'Next page field') } })
+  const o = adaptObservation(raw([field('e1', 'Name', { value: 'Alex' }), field('e2', 'Email')]), 1), set = enumerate(o, t)
+  const history = [{ operation: 'replace_text', target: 'e1', valueId: 'name', outcome: { postcondition: 'met' } }]
+  const status = compileBatch(o, t, set, history).payload.state.inputStatus
+  assert.equal(status.source, 'host_execution_records')
+  assert.deepEqual(status.values, { name: { status: 'applied', eligibleTargetOnThisPage: false }, email: { status: 'pending', eligibleTargetOnThisPage: true }, later: { status: 'pending', eligibleTargetOnThisPage: false } })
+  assert.equal(status.notAppliedWithTargetOnThisPage, 1); assert.equal(status.notAppliedWithoutTargetOnThisPage, 1)
+  // Page text alone never marks a value applied.
+  assert.equal(compileBatch(o, t, set).payload.state.inputStatus.values.name.status, 'pending')
+  const p = page([field('e1', 'Name'), button('e3', 'Continue')])
+  const seen = []
+  await run(task({ values: { name: value('Alex', 'Name') }, maxSteps: 2, maxRequests: 2 }), p, async payload => { seen.push(payload.state.inputStatus); return answerer({ next: () => ['Continue', 0.9] })(payload) })
+  assert.deepEqual(seen.map(s => [s.values.name.status, s.notAppliedWithTargetOnThisPage]), [['pending', 1], ['applied', 0]])
 })
 test('one request applies several simultaneously valid fields, then navigation is decided next round', async () => {
   const p = page([field('e1', 'Name'), field('e2', 'Email'), button('e3', 'Continue')])
@@ -96,7 +121,7 @@ test('one request applies several simultaneously valid fields, then navigation i
   assert.deepEqual(p.state.executed.map(e => [e.ref, e.text]), [['e1', 'Alex'], ['e2', 'a@x.test'], ['e3', undefined]])
   assert.equal(asks(), 2); assert.equal(result.status, 'step_limit')
   const d = events.find(e => e.event === 'batch_decision')
-  assert.deepEqual(d.questions, { bind: 2, fits: 7, next: 1, goal_met: 1 }); assert.deepEqual(d.bindTargetCounts, [1, 1])
+  assert.deepEqual(d.questions, { bind: 2, next: 1, goal_met: 1, nextOptions: 5 }); assert.deepEqual(d.bindTargetCounts, [1, 1])
   assert.ok(d.payloadBytes > 0 && d.inputTokens === 10)
   assert.ok(events.filter(e => e.event === 'batch_round').every(e => e.modelMs >= 0 && e.observationMs >= 0 && e.executionMs >= 0))
   assert.ok(events.filter(e => e.event === 'parameter_binding').every(e => e.method === 'batch'))
@@ -140,7 +165,7 @@ test('option removed before its turn is dropped as not_in_domain', () => {
 })
 test('uncertain navigation and high goal_met never complete or dispatch', async () => {
   const p = page([button('e1', 'Continue')])
-  let r = await run(task({ values: {} }), p, answerer({ next: () => ['Continue', 0.5], fit: () => 0.5 }))
+  let r = await run(task({ values: {} }), p, answerer({ next: () => ['Continue', 0.5] }))
   assert.equal(r.result.code, 'UNCERTAIN'); assert.equal(p.state.executed.length, 0)
   const receipt = { id: 'receipt', scope: { frame: 'top', root: { kind: 'selector', css: 'main' } }, subject: 'scope', read: 'text', predicate: 'contains', expected: 'Received', freshness: 'current' }
   const q = page([field('e1', 'Name')])

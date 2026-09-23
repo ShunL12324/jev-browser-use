@@ -135,16 +135,17 @@ Choice 的归一化分布表示候选间**相对偏好**，不是单个动作的
 
 r3 最后一步（trace `064a9181`）在 set_checked Hybrid 0.48 与 replace_text 薪资 0.30 之间停下，两者都是正确的下一步。单一 Choice 要求所有候选竞争同一分布并过 0.6，多个同时有效的待填字段必然分摊概率；继续加提示不能消除这种结构问题。第四轮改变合同，不改提示方向。
 
-启用：task 同时设置 `profile: "complex_forms"` 与 `decision: "form_batch"`（可选 `minSuitability`，默认 0.8）。默认 `decision: "single"` 保持上文全部行为与请求内容；`form_batch` 在非 complex profile 下被 schema 拒绝。
+启用：task 同时设置 `profile: "complex_forms"` 与 `decision: "form_batch"`。默认 `decision: "single"` 保持上文全部行为与请求内容；`form_batch` 在非 complex profile 下被 schema 拒绝。
 
 ### 每次观察一次请求
 
-依据 Jev 接口事实（见 [阅读笔记](typesafe/reading.zh-CN.md) §1–3）：一次请求可携带多个共享 state 的独立问题；Choice 是候选间相对排名，Noul 是命题为真的概率；官方建议 Choice 配合独立 fits/exists 判断，并由代码定义最终政策（speculative fan-out：预问所有分支，只消费适用的分支）。每轮请求包含：
+依据 Jev 接口事实（见 [阅读笔记](typesafe/reading.zh-CN.md) §1–3）：一次请求可携带多个共享 state 的独立问题；Choice 是候选间相对排名；可以预问所有分支，只消费适用的分支（speculative fan-out）。每轮请求包含：
 
 1. `b1…bn`：每个**当前页有合格目标且仍待填**的 task 值/文件各一道 Choice。候选为 registry domain 中包含该值的目标句柄 + `not_now`。不同字段各自一道题，概率不再互相分摊。已附文件的文件目标不再提供（模型不能选择重复上传）。
-2. `next`：对**非输入**操作（activate、scroll_into_view、scroll、wait）的 Choice + none。
-3. `f1…fm`：每个非输入操作一道 Noul，询问“假设当前没有可施加的输入，现在执行它是否是有证据支持、尊重前置条件与待填必要输入的有用步骤”。
-4. `goal_met`：与旧合同相同。
+2. `next`：对**非输入**操作（activate、页面 scroll_down/scroll_up、wait）的 Choice + none。每个目标最多出现一次（见 reveal）。
+3. `goal_met`：与旧合同相同。
+
+state 另含 `inputStatus`（来源 `host_execution_records`）：每个 valueId 的状态——宿主执行记录中最近一次该值的动作后置条件 met 为 `applied`，unknown 为 `sent_unconfirmed`，从未执行或 unmet 为 `pending`——以及它在本次观察中是否有合格目标；并汇总未施加且本页有/无目标的数量。它不从页面文本推断，因此不会因页面上恰好显示相同文本而标为已施加。next 指令说明：没有未施加输入在本页有合格目标、且已知必要输入有效时，本页输入已完成，应选择推进目标的操作或为剩余输入创建/揭示目标的操作。upload_file 后置条件在目标文件列表非空时为 met。
 
 参数题不再单独发送：绑定题同时给出值与目标。文件仍只以宿主授权的 fileId 进入题目与执行，字节和路径从不进入 task/模型。
 
@@ -152,25 +153,29 @@ r3 最后一步（trace `064a9181`）在 set_checked Hybrid 0.48 与 replace_tex
 
 - 绑定：`choice !== not_now` 且概率 ≥ `minProbability` 才接受；同一目标被多个值选中时全部丢弃（`binding_conflict`）。
 - 有接受的绑定时，本轮只执行绑定，按 observation.objects 顺序逐个执行，不消费 `next`。每个执行前在**最新观察**上重新解析：documentId/URL 与全部对象身份（ref、role、name、context、dialog 的集合，与顺序无关）必须与判断时一致；操作仍合格；值仍在该目标 domain 中（如 option 仍存在且启用）。然后用最新事实生成执行请求，页面执行器照旧比较完整事实。任何身份变化、不合格、值不再在 domain、`not_sent` 或后置条件 unmet 都停止本批剩余绑定，重新观察并发下一次请求。已发送动作绝不重放。
-- 可见但中心点不可达的目标（屏外/遮挡）在 registry 中仅有 scroll_into_view；batch 另外以 `reveal` 标记提供其底层操作。执行时宿主先派发 scroll_into_view（计一步），重新观察，要求身份不变且操作已合格后才执行，否则停止。遮挡不会因滚动消失，此时停在 `not_eligible`。
-- 无接受的绑定时消费 `next`：top 概率 ≥ `minProbability` 则执行（basis `choice`）；否则当 top 的 fits ≥ `minSuitability` 且 top 同时是 fits 最大者时执行（basis `suitability`）；否则 `UNCERTAIN`。`none` → `NO_CANDIDATE`。
+- 可见但中心点不可达的目标（屏外/遮挡）在 registry 中仅有 scroll_into_view；batch 用带 `reveal` 标记的底层操作**替换**它：每个目标只有一个句柄，已填字段等滚动后无事可做的目标不再出现。执行时宿主先派发 scroll_into_view（计一步），重新观察，要求身份不变且操作已合格后才执行，否则停止。遮挡不会因滚动消失，此时停在 `not_eligible`。页面级 scroll_down/up 保留供阅读。
+- 无接受的绑定时消费 `next`：top 概率 ≥ `minProbability`（仍为 0.6）则执行；否则 `UNCERTAIN`。`none` → `NO_CANDIDATE`。
 - 步数、请求、token、时长上限、有限恢复、重复状态检测、poison gate、仅由断言得出 verified 均不变。`goal_met` 只在无断言时产生 `reported_done`。
 
 ### 语义与限制（诚实说明）
 
-- Choice 概率是所列选项间的**相对偏好**，不是准确率或安全概率；0.6 与 0.8 是沿用/设定的路由门槛，未经校准。fits Noul 与 Choice 来自同一模型、同一证据，是第二个判断而非独立验证。真正的保障是执行前事实比对、断言与服务器 oracle。
+- Choice 概率是所列选项间的**相对偏好**，不是准确率或安全概率；0.6 是沿用的路由门槛，未经校准。真正的保障是执行前事实比对、断言与服务器 oracle。
 - **值到字段的映射仍由 task 声明的目标（role/name/可选 context 的精确匹配）完成。** 因此大多数绑定题只有“一个目标 + not_now”，Jev 实际判断的是“现在施加还是不施加”，不是在多个字段之间为值选择字段。trace 的 `bindTargetCounts` 记录每题目标数，报告应给出单目标题所占比例。无目标声明的值（让 Jev 在全部兼容字段中绑定）不在本轮范围。
 - 自定义弹出选择（如 ARIA listbox）仍走 `next`：打开触发器、选择选项，各需一次请求。
 - 页面动态变化（异步加载、依赖字段出现、新增行）会停止批次，新出现的值只在下一次观察中提问；这会多花请求，但不在旧判断上执行新对象。
-- 负载保持 48 KB 字节上限、每题 ≤254 个选项，超出直接 `RESOURCE_LIMIT`，不做 top-k 截断。fits 数量随页面可激活元素增加。
+- 负载保持 48 KB 字节上限、每题 ≤254 个选项，超出直接 `RESOURCE_LIMIT`，不做 top-k 截断。
+
+### r1 真实失败与 r2 修改
+
+r1 冻结 `2c20167` 的真实主例：绑定题 32/32 以 0.91–0.99 接受，三页 27 个值施加成功；第三页全部字段有效（formInvalidCount 0）后，next 在 activate Continue[reveal] 0.27、scroll_into_view Continue 0.26、none 0.25 之间分散而 `UNCERTAIN`（12 次请求、约 105k 输入 tokens）。原因：reveal 句柄与同目标的 scroll_into_view 并存；已填字段的 scroll_into_view 形成噪声（19 个非输入句柄中 14 个）；每操作 fits Noul 全程 ≤0.74，正确的 Continue 仅 0.20–0.44，suitability 门槛从未生效。r2：reveal 替换 scroll_into_view；删除 fits Noul（减少约 20 道题）；state 增加 `inputStatus`；0.6 门槛不变。这些修改是否足以让真实 Jev 过线，只能由新的独立真实试验回答；none 的 0.25 份额不保证因此消失。
 
 ### Trace 事件
 
-`batch_decision`：payloadBytes、各类题数（bind/fits/next/goal_met）、本请求 inputTokens、`bindTargetCounts`、accepted（valueId、目标、概率、目标数）、drops（`not_now` / `low_probability` / `binding_conflict`）、next（候选、概率、fits、basis）、goalMet。`batch_stopped`：reason（`identity_changed` / `not_eligible` / `not_in_domain` / `not_sent` / `postcondition_unmet` / `step_limit` / `not_revealable`）与剩余值。`reveal`：宿主滚动。`parameter_binding` 的 method 为 `batch`。`batch_round`：每轮 modelMs、observationMs（含批内重新观察）、executionMs 与执行数。服务照旧记录 api_started/api_finished 与总 timings。
+`batch_decision`：payloadBytes、题数（bind/next/goal_met 及 next 选项数 nextOptions）、本请求 inputTokens、`bindTargetCounts`、accepted（valueId、目标、概率、目标数）、drops（`not_now` / `low_probability` / `binding_conflict`）、next（候选、概率、basis）、goalMet。`batch_stopped`：reason（`identity_changed` / `not_eligible` / `not_in_domain` / `not_sent` / `postcondition_unmet` / `step_limit` / `not_revealable`）与剩余值。`reveal`：宿主滚动。`parameter_binding` 的 method 为 `batch`。`batch_round`：每轮 modelMs、observationMs（含批内重新观察）、executionMs 与执行数。服务照旧记录 api_started/api_finished 与总 timings。
 
 ### 证据级别
 
-- 离线（`tests/jev-s1-batch.test.mjs`）：opt-in、题目构成、阈值/not_now/冲突丢弃、next 双门槛、身份变化/文档变化/新增行/陈旧 ref/option 消失/屏外 reveal 的停止或执行、无假完成。
+- 离线（`tests/jev-s1-batch.test.mjs`）：opt-in、题目构成、阈值/not_now/冲突丢弃、next 单门槛、next 中目标不重复且无 scroll_into_view、inputStatus 仅来自执行记录、身份变化/文档变化/新增行/陈旧 ref/option 消失/屏外 reveal 的停止或执行、无假完成。
 - 机械（`node tests/e2e/complex-s1-batch.mjs`，需先启动 17431 夹具）：真实 `runS1` batch 循环经 stdio MCP → WebSocket → 扩展 → DOM，在 atlas/standard 上 verified，服务器 oracle 32/32 + PDF hash 正确，16 次（伪）请求。其应答器在运行时读取每次编译出的题目：接受所提供的全部绑定，导航按夹具名称脚本选择。**这是管道测试，不是模型证据**；脚本只存在于测试中，核心没有夹具知识。其请求数只说明理想应答下的下限，不代表真实 Jev 的请求数、速度或成功率。
 - 真实 Jev 效果只能由独立验收者在冻结 SHA 上运行得出。
 
