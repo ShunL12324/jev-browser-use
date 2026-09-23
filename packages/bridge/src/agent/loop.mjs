@@ -2,7 +2,7 @@
 // execution → event-driven settle. Executed actions are never replayed.
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
-import { build, invalidAnswers, normalize } from './jev.mjs'
+import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
 import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
@@ -23,7 +23,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
   const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
   let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false
-  const taskTabs = new Map()
+  const taskTabs = new Map(), seenValues = new Map()
   const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }
   const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, metrics: m, ...extra } }
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
@@ -38,6 +38,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     page.tabs = taskTabs.size > 1 ? [...taskTabs.values()].map(t => ({ id: t.id, title: t.title ?? '', url: t.url ?? '', current: t.id === tabId })) : []
     // Secret plaintext typed into a non-password field must not re-enter state.
     for (const secret of secrets) { page.text = page.text.split(secret).join('‹secret›'); for (const e of page.elements) if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›') }
+    // After secret redaction: remembered values never include secrets.
+    for (const v of pageValues(page.text)) { seenValues.delete(v); seenValues.set(v, { text: v, source: page.title }) }
     emit({ event: 'observation', documentId: page.documentId, url: page.url, elements: page.elements.length, omitted: page.omitted, textChars: page.text.length })
     return page
   }
@@ -156,7 +158,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       const key = norm(`${el.name}|${el.context?.join('|')}`)
       let text = textCache.get(key)
       const span = answers?.text_value, spanP = span?.probabilities?.[span.choice]
-      if (text === undefined && span && span.choice !== 'caller' && spanP >= 0.5) { text = built.spans[Number(span.choice.slice(1)) - 1]; emit({ event: 'text_from_goal', text, p: spanP }) }
+      if (text === undefined && span && span.choice !== 'caller' && spanP >= 0.5) { text = built.spans[Number(span.choice.slice(1)) - 1]; emit({ event: 'text_from_goal', text: task.inputs && Object.values(task.inputs).some(i => i.secret && i.value === text) ? '‹secret›' : text, p: spanP }) }
       if (text === undefined) {
         const answer = await toCaller('text', { question: `Text to type into this field for the goal: ${describe(el)}`, field: { id: el.ref, label: el.name, role: el.role, value: el.value, context: el.context }, expects: { text: 'string' } })
         if (answer.unavailable) return result('blocked', { reason: 'needs_text' })
@@ -228,7 +230,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         if (!ok.approve) return result('blocked', { reason: 'origin_denied' })
         allowed.add(originOf(page.url))
       }
-      const built = build(page, task, history)
+      const built = build(page, task, history, [...seenValues.values()])
       m.jevRequests++
       const response = await timed('jevMs', () => ask(built.payload, { signal }))
       if (Number.isFinite(response.usage?.input_tokens)) m.jevInputTokens += response.usage.input_tokens; else m.jevUnknownUsage++

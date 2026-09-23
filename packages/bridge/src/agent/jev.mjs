@@ -22,7 +22,7 @@ const compact = e => ({ id: e.ref, role: e.role, name: e.name, ...(e.value ? { v
   ...(e.checked !== null && e.checked !== undefined ? { checked: e.checked } : {}), ...(e.expanded !== null && e.expanded !== undefined ? { expanded: e.expanded } : {}), ...(e.selected ? { selected: true } : {}),
   ...(e.disabled ? { disabled: true } : {}), ...(e.required ? { required: true, valid: e.valid } : {}), ...(!e.inView ? { offscreen: true } : {}), ...(e.tag === 'select' ? { options: e.options.length > 40 ? `${e.options.length} options` : e.options.map(o => o.label) } : {}), ...(e.inputType === 'file' ? { files: e.files ?? 0 } : {}) })
 
-export function build(page, task, history) {
+export function build(page, task, history, seen = []) {
   // Refs are per document: only records from this document refer to these elements.
   const here = history.filter(h => h.doc === page.documentId)
   const used = new Set(here.filter(h => h.valueId && h.postcondition === 'met').map(h => h.ref))
@@ -50,8 +50,12 @@ export function build(page, task, history) {
   // Speculative text head: when typing is offered, Jev may pick the literal
   // text from spans of the goal (pre-parsed value extraction); otherwise the
   // caller supplies it through a text handoff.
-  const spans = ops.TYPE_TEXT ? goalSpans(task.goal) : []
-  if (spans.length) questions.text_value = { type: 'choice', instructions: 'If the next operation is TYPE_TEXT into the chosen field, which exact span of the goal should be typed? Choose caller if none of the listed spans is exactly the needed text.', criteria: { ...Object.fromEntries(spans.map((t, i) => [`t${i + 1}`, t])), caller: 'None of these spans; the caller must supply the text.' } }
+  // Values seen on this task's pages (codes, emails, phone numbers) are also
+  // offered, so a value read on one page can be entered on another.
+  const goalOnly = ops.TYPE_TEXT ? goalSpans(task.goal) : []
+  const pageValues = ops.TYPE_TEXT ? seen.filter(v => !goalOnly.includes(v.text)).slice(-30) : []
+  const spans = [...goalOnly, ...pageValues.map(v => v.text)]
+  if (spans.length) questions.text_value = { type: 'choice', instructions: 'If the next operation is TYPE_TEXT into the chosen field, which exact text should be typed: a span of the goal, or a value shown on a page of this task? Choose caller if none of the listed texts is exactly the needed text.', criteria: { ...Object.fromEntries(goalOnly.map((t, i) => [`t${i + 1}`, t])), ...Object.fromEntries(pageValues.map((v, i) => [`t${goalOnly.length + i + 1}`, `${v.text} (shown on page "${v.source}")`])), caller: 'None of these; the caller must supply the text.' } }
   const binds = {}
   const inputs = {}
   for (const [id, input] of Object.entries(task.inputs)) {
@@ -71,7 +75,7 @@ export function build(page, task, history) {
   // question, answered from the goal text (a span, an option, or a state).
   // Several goal-specified fields are then filled in one cycle.
   const claimed = new Set(Object.values(binds).flatMap(b => Object.keys(b.candidates)))
-  const goalSpanList = spans.length ? spans : goalSpans(task.goal), fields = {}
+  const goalSpanList = goalOnly.length ? goalOnly : goalSpans(task.goal), fields = {}
   const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && e.inView && !used.has(e.ref) && !claimed.has(e.ref) && !failed.has(`field:${page.documentId.slice(0, 8)}:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
   for (const e of fillable.slice(0, 12)) {
     const choices = e.tag === 'select' ? Object.fromEntries(e.options.filter(o => !o.disabled && o.value !== e.value && o.value !== '').slice(0, 40).map((o, i) => [`o${i + 1}`, { label: o.label, value: o.value }]))
@@ -137,4 +141,12 @@ export function goalSpans(goal, max = 150) {
     if (out.size >= max) return [...out]
   }
   return [...out].filter(Boolean)
+}
+
+// Structured values in page text worth remembering for later typing: codes
+// with letters and digits (e.g. AB-1234-C), emails and phone numbers.
+export function pageValues(text) {
+  const out = new Set()
+  for (const m of text.matchAll(/\b(?=[A-Z0-9-]*\d)(?=[A-Z0-9-]*[A-Z])[A-Z0-9]{2,}(?:-[A-Z0-9]+){1,4}\b|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\+?\(?\d[\d ()-]{7,}\d/g)) out.add(m[0].trim())
+  return [...out].slice(0, 20)
 }

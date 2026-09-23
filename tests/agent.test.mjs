@@ -354,3 +354,11 @@ test('a tab opened by a task tab is adopted and followed; SWITCH_TAB returns to 
   assert.deepEqual(switched, [8, 7]); assert.equal(result.tabId, 7)
   assert.deepEqual(seenTabs[1].map(t => [t.id, t.current]), [['t7', false], ['t8', true]])
 })
+test('a value shown on a page of the task can be typed on another page', async () => {
+  n = 0
+  const code = el('Activation code'), f = fake([code]), call = f.call
+  f.call = async (name, args) => { const r = await call(name, args); return args.action === 'agent_observe' ? { ...r, title: 'Help', text: 'Your code is TW-4448-B.' } : r }
+  let asks = 0
+  await run(task({ goal: 'Enable beta features with the activation code from the help page' }), f, async p => { asks++; return answer({ op: () => asks === 1 ? ['TYPE_TEXT', code.ref] : ['DONE'], text: 'TW-4448-B (shown on page "Help")' })(p) }, async () => { throw Error('no handoff expected') })
+  assert.deepEqual(f.s.executed.map(e => e.text), ['TW-4448-B'])
+})
