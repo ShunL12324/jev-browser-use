@@ -124,3 +124,15 @@ node scripts/jev/calibration.mjs [--sha=<prefix>]      # 从 trace 汇总门槛�
 - forma 旅行任务：只加目标规则时模型在“View Casa Flora”与“Find stays”间 0.54/0.45 分散，被 R2 门槛拦下；加入“未提交表单”宿主事实与目标题完整规则后连续 4 次通过（agentMs 约 2.1–2.8 s，4–5 次请求）。
 
 结论：当前数字作为路由默认值保留；bind/field 门槛下没有观察到错误执行，操作头 0.4–0.6 区间有 1 次已知错误执行，需要独立验收数据再定。开发期外部网络（WSL 到 api.typesafe.ai、Wikipedia、Google）多次整段超时，Wikipedia 只完成过 1 次（3.8 s，3 次请求），相关失败不是模型判断造成，但同样计入账本。
+
+### r2 修改（独立审查与代理后复测之后）
+
+- 导航：点击指向其它文档的链接后，最多等 3 s 新文档再观察；提交表单或 Enter 后 150 ms 内继续监听 beforeunload；预期的导航未发生时，下一次 DONE 不被接受，先重新观察一次。r1 的 Wikipedia 假完成（建议项点击后 400 ms 才跳转，旧页面上接受了 DONE）由此修复。
+- 门槛：Search/Submit/Apply/Find 类提交目标和 Enter 使用 0.6（其它 R2 仍为 0.5 + 1.3 倍边际）。自定义 combobox 的当前显示值作为 value 进入元素表（例如 `combobox "Round trip" = "Round trip"`），模型能比较当前值与目标。
+- 页面 `confirm()`：browser_task 在自己的动作期间把原生确认框答“否”并报告文字（页面提交因此不发生），把该对话框作为确认点发 `confirm` handoff（reason `page_confirm_dialog`）；批准后对同一目标重做一次并接受该对话框；`deny`/`none` 模式以 `needs_confirmation` 结束。低层工具的对话框行为不变。
+- Enter 按所属表单的提交控件判定风险（POST/支付/强词的最后一步为 R3）。
+- secret 在绑定和执行时都按当前文档 origin 检查（不仅在 start 时）。
+- 每个目标题超过 254 项时截断数写入 `state.omittedTargets`；最近的 alert/confirm/prompt 文字进入 `state.recentDialogs`。
+- 请求字节上限为 120 KB（设计稿 48 KB）：绑定题较多的表单页约 30–37 KB、约 9k 输入 tokens，未超过 Jev 单请求限制；每次请求的字节数和 tokens 都写入 trace 的 `decision` 事件。
+
+r2 复测（开发者自测，经 WSL 本地代理访问公网；此前的连接超时属于环境失败，不是模型判断）：Wikipedia 3/3 到达目标条目（3–4 次请求，agentMs 4.5–19.7 s，时间波动来自页面加载），T33 harness 判分 1/1 通过；Google Flights 3/3 到达结果页，tfs 解码为单程、2026-11-20、ZRH → London（11 次请求，agentMs 9.3–10.0 s，无 handoff）；harness 判分一次的页面读取检查中 one_way/origin/results 未通过而 URL 参数正确，已交给验收方核对检查条件。机械：`tests/e2e/task-confirm.mjs` 通过真实扩展证明确认框拒绝时 0 次提交、批准后 1 次、延迟导航被等待。
