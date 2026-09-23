@@ -5,11 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 
+// Optional per-process proxy for public sites (e.g. EVAL_BROWSER_PROXY=http://127.0.0.1:7890);
+// local eval sites always bypass it.
+export const proxyArgs = () => process.env.EVAL_BROWSER_PROXY ? [`--proxy-server=${process.env.EVAL_BROWSER_PROXY}`, '--proxy-bypass-list=127.0.0.1;localhost;<-loopback>'] : []
 export const CHROMIUM = process.env.CHROMIUM_EXECUTABLE ?? '/home/shun/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome'
 
 export async function isolatedBrowser({ headless = true, args = [] } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'eval-profile-'))
-  const context = await chromium.launchPersistentContext(join(dir, 'profile'), { executablePath: CHROMIUM, headless, viewport: { width: 1280, height: 900 }, acceptDownloads: true, args })
+  const context = await chromium.launchPersistentContext(join(dir, 'profile'), { executablePath: CHROMIUM, headless, viewport: { width: 1280, height: 900 }, acceptDownloads: true, args: [...proxyArgs(), ...args] })
   return { context, dir, close: async () => { await context.close().catch(() => {}); await rm(dir, { recursive: true, force: true }) } }
 }
 

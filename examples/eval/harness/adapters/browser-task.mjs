@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { chromium } from 'playwright'
-import { CHROMIUM, readPageState } from '../browser.mjs'
+import { CHROMIUM, readPageState, proxyArgs } from '../browser.mjs'
 
 const freePort = () => new Promise(resolve => { const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)) }) })
 
@@ -39,7 +39,7 @@ export function createRunner({ bridge } = {}) {
         const env = { ...process.env, BROWSER_USE_PORT: port, JEV_SECRETS_MANIFEST: secretsPath, JEV_S1_FILES_MANIFEST: filesPath }
         client = new Client({ name: 'eval-harness', version: '1' })
         await client.connect(new StdioClientTransport({ command: process.execPath, args: [`${root}/packages/bridge/dist/index.js`], env, stderr: 'inherit' }))
-        context = await chromium.launchPersistentContext(join(temp, 'profile'), { executablePath: CHROMIUM, headless: true, viewport: { width: 1280, height: 900 }, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] })
+        context = await chromium.launchPersistentContext(join(temp, 'profile'), { executablePath: CHROMIUM, headless: true, viewport: { width: 1280, height: 900 }, args: [...proxyArgs(), `--disable-extensions-except=${extension}`, `--load-extension=${extension}`] })
         await (context.serviceWorkers()[0] ?? context.waitForEvent('serviceworker', { timeout: 15000 }))
         const call = async args => { const r = await client.callTool({ name: 'browser_task', arguments: args }, undefined, { timeout: view.budgets.timeoutMs + 60000 }); return JSON.parse(r.content.find(c => c.type === 'text').text) }
         let result = await call({ action: 'start', goal: view.goal, startUrl: view.startUrl, allowedOrigins: view.allowedOrigins, inputs: view.inputs, files: view.files, irreversible: view.irreversible, llm: 'handoff', budgets: { timeoutMs: view.budgets.timeoutMs, maxSteps: view.budgets.maxSteps } })

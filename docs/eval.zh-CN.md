@@ -153,6 +153,8 @@ node harness/run.mjs report               # 按任务、能力与加权覆盖汇
 2. tester 调用 `browser_task start`，自己回答 handoff，把 `browser_task` 返回的 `status/answer/finalUrl/metrics/tracePath` 与自己的 handoff 记录（`{kind, at, approve}`）写成 result.json。
 3. validator/master 运行 `node harness/run.mjs finish <pending> --result result.json [--trace …] [--page-state …]`。控制台输出不显示期望值；完整明细在 `results/`，tester 不应读取该目录。
 
+WSL 侧访问公网不稳定时，按进程设置代理（不改全局配置）：harness/bridge 进程用 `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=… HTTP_PROXY=… NO_PROXY=127.0.0.1,localhost`，临时 Chromium 用 `EVAL_BROWSER_PROXY=http://127.0.0.1:7890`（本地站点始终绕过代理）。网络超时计为环境失败，与 agent 失败分开报告但都计数。
+
 WSL 使用 mirrored 网络，Windows Chrome 可直接访问 `127.0.0.1:1743x/1744x`；如需其它主机名，设 `EVAL_HOST`（监听）与 `EVAL_HOST_PUBLIC`（写进 URL）。
 
 ## 6. 指标与计时边界

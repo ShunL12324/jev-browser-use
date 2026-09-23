@@ -10,7 +10,7 @@ const SOURCES = [
   ['public.wikipedia_compare_births', 'https://en.wikipedia.org/wiki/Charles_Babbage', ['26 December 1791']],
   ['public.arxiv_attention_title', 'https://arxiv.org/abs/1706.03762', ['Attention Is All You Need']],
   ['public.mdn_flex_grow_default', 'https://developer.mozilla.org/en-US/docs/Web/CSS/flex-grow', ['Initial value', '<code>0</code>']],
-  ['public.python_docs_deque', 'https://docs.python.org/3/library/collections.html', ['deque objects']],
+  ['public.python_docs_deque', 'https://docs.python.org/3/library/collections.html', ['id="deque-objects"', 'href="#deque-objects"']],
   ['public.github_playwright_mcp_license', 'https://api.github.com/repos/microsoft/playwright-mcp', ['"spdx_id": "Apache-2.0"', '"spdx_id":"Apache-2.0"']],
   ['public.cambridge_serendipity', 'https://dictionary.cambridge.org/dictionary/english/serendipity', ['noun']],
   ['public.osm_search_eiffel', 'https://nominatim.openstreetmap.org/search?q=Eiffel+Tower&format=json&limit=1', ['Paris']],
