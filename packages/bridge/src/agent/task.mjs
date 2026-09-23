@@ -36,7 +36,7 @@ export function prepareTask(raw) {
     if (v.secretRef) {
       const s = secrets[v.secretRef]
       if (!s || typeof s.value !== 'string' || !Array.isArray(s.origins) || !s.origins.some(o => task.allowedOrigins.includes(o))) throw new RunError('SECRET_UNAUTHORIZED', `Secret ${v.secretRef} is not authorized for this task's origins.`)
-      inputs[id] = { value: s.value, purpose: v.purpose, secret: true }
+      inputs[id] = { value: s.value, purpose: v.purpose, secret: true, origins: s.origins }
     } else inputs[id] = { ...v }
   }
   for (const [id, f] of Object.entries(task.files)) inputs[id] = { ...f }

@@ -7,6 +7,9 @@ import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_
 
 const now = () => performance.now()
 const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
+// Enter in a form submits it: judge it as its submit control (or an unnamed
+// POST/submit stand-in when the form has none).
+export const submitterOf = (el, page) => el?.form ? page.elements.find(e => e.submit && e.form === el.form) ?? { ...el, submit: true, name: '', editable: false } : el
 const originOf = url => { try { return new URL(url).origin } catch { return null } }
 // A judgment stays usable for one target while the document, URL and that
 // target's identity (role, name, context, dialog) are unchanged. Unrelated
@@ -52,6 +55,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     const before = page
     const request = { action: 'agent_execute', documentId: page.documentId, url: page.url, op, ...(el ? { ref: el.ref, guard: el.guard } : {}), ...args }
     if (op === 'upload') { request.files = [files(args.fileId)]; delete request.fileId }
+    const secret = valueId && task.inputs[valueId]?.secret ? task.inputs[valueId] : null
+    if (secret && !secret.origins?.includes(originOf(page.url))) throw new RunError('SECRET_ORIGIN', 'Secret is not authorized for this document origin; nothing typed.')
     emit({ event: 'execute', op, ref: el?.ref, name: el?.name, context: el?.context, valueId })
     let res
     try { res = await s1(request, 'execMs') } catch (error) { emit({ event: 'outcome', execution: 'unknown', code: error.code }); throw new RunError('OUTCOME_UNKNOWN', 'Execution transport failed; the action is not replayed.') }
@@ -76,7 +81,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       : op === 'check' ? (after?.checked === args.checked ? 'met' : 'unmet') : op === 'upload' ? (after?.files ? 'met' : 'unmet')
       // A chosen option usually closes its popup; absence or a selected state is success.
       : op === 'click' ? (!after || after.selected === true || after.checked === true ? 'met' : 'unmet') : 'unknown'
-    const entry = { op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
+    const confirmDenied = res.confirmDenied ?? settled.confirmDenied
+    const entry = { op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(confirmDenied !== undefined ? { confirmDenied } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
     stalls = changed || op === 'wait' ? 0 : stalls + 1
     return { sent: true, ...entry }
@@ -104,14 +110,26 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       if (!ok.approve) return result('blocked', { reason: 'origin_denied' })
       allowed.add(originOf(el.href))
     }
-    const risk = el && ['CLICK', 'PRESS_ENTER'].includes(op) && irreversible(el, page)
+    const risk = el && ['CLICK', 'PRESS_ENTER'].includes(op) && irreversible(op === 'PRESS_ENTER' ? submitterOf(el, page) : el, page)
     if (risk) {
       const ok = await confirm(`Irreversible action? ${op} ${describe(el)} on ${page.url}`, risk)
       emit({ event: 'confirm', risk, ref: el.ref, approve: !!ok.approve })
       if (ok.deny) return result('needs_confirmation', { pending: describe(el) })
       if (!ok.approve) return result('blocked', { reason: 'confirmation_denied' })
     }
-    await exec(OP[op], el, op === 'PRESS_ENTER' ? { key: 'Enter' } : {})
+    const r = await exec(OP[op], el, op === 'PRESS_ENTER' ? { key: 'Enter' } : {})
+    // The page asked window.confirm() and was answered "no", so its commit
+    // did not happen. That dialog is the confirmation point: ask the caller,
+    // then repeat the same action once with the dialog accepted.
+    if (r.sent && r.confirmDenied !== undefined) {
+      const ok = await confirm(`The page asks to confirm: "${r.confirmDenied}" (after ${op} ${describe(el)})`, 'page_confirm_dialog')
+      emit({ event: 'confirm', risk: 'page_confirm_dialog', ref: el?.ref, approve: !!ok.approve })
+      if (ok.deny) return result('needs_confirmation', { pending: r.confirmDenied })
+      if (!ok.approve) return result('blocked', { reason: 'confirmation_denied' })
+      const again = page.elements.find(e => e.ref === el?.ref && e.role === el.role && e.name === el.name)
+      if (!again) return result('blocked', { reason: 'confirm_target_gone' })
+      await exec(OP[op], again, { ...(op === 'PRESS_ENTER' ? { key: 'Enter' } : {}), acceptConfirm: true })
+    }
   }
   const choose = async (answers, built, why) => {
     const options = []

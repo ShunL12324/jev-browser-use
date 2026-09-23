@@ -55,6 +55,7 @@ function observe(limit: number) {
   elements.sort((a, b) => a.top - b.top || a.left - b.left)
   const marker = hash(JSON.stringify([location.href, scrollY, elements.map(e => [e.ref, e.role, e.name, e.value, e.checked, e.expanded, e.disabled])]))
   return { ok: true, documentId, url: location.href, title: document.title, readyState: document.readyState, text: visibleText(),
+    dialogs: (() => { try { return JSON.parse(document.documentElement.getAttribute('data-jev-dialogs') ?? '[]') } catch { return [] } })(),
     scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - near.length, marker }
 }
 const reject = (code: string) => ({ ok: true, execution: 'not_sent', code })
@@ -98,6 +99,10 @@ function execute(q: Req) {
   }
   // Navigation API reports same-tick cross-document navigations; the settle
   // step also listens for beforeunload of later scheduled ones.
+  // Native confirm() during this action is answered by policy (see main.ts):
+  // denied by default so a page-level commit cannot pass without a handoff.
+  const root = document.documentElement
+  root.setAttribute('data-jev-confirm', q.acceptConfirm ? 'accept-once' : 'deny'); root.removeAttribute('data-jev-confirm-denied')
   const nav = (window as unknown as { navigation?: EventTarget }).navigation
   let crossDocument = false
   const onNavigate = (e: Event) => { if (!(e as unknown as { destination: { sameDocument: boolean } }).destination.sameDocument) crossDocument = true }
@@ -130,7 +135,8 @@ function execute(q: Req) {
       default: return reject('UNSUPPORTED')
     }
   } finally { nav?.removeEventListener('navigate', onNavigate) }
-  return { ok: true, execution: 'returned', crossDocument }
+  const confirmDenied = root.getAttribute('data-jev-confirm-denied')
+  return { ok: true, execution: 'returned', crossDocument, ...(confirmDenied !== null ? { confirmDenied } : {}) }
 }
 // Up to two frames or 50 ms. After typing into a combobox, wait until its
 // visible options exist and stop changing (async suggestions), at most 800 ms.
@@ -140,7 +146,7 @@ function settle(q: Req) {
     const start = performance.now(), el = q.ref ? findByRef(q.ref as string) : null
     const combobox = q.op === 'type' && (el?.getAttribute('role') === 'combobox' || el?.hasAttribute('aria-autocomplete') || el?.hasAttribute('list'))
     let frames = 0, done = false
-    const finish = () => { if (!done) { done = true; resolve({ ok: true, navigating, ms: Math.round(performance.now() - start) }) } }
+    const finish = () => { if (!done) { done = true; const denied = document.documentElement.getAttribute('data-jev-confirm-denied'); resolve({ ok: true, navigating, ms: Math.round(performance.now() - start), ...(denied !== null ? { confirmDenied: denied } : {}) }) } }
     if (combobox) {
       let last = '', stable = 0
       const poll = () => {

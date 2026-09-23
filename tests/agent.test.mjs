@@ -46,14 +46,14 @@ test('binding candidates are type-compatible and never reuse bound or password f
   assert.equal(bindCandidates(p, { value: 'true' }, new Set())[box.ref].checked, true)
   assert.deepEqual(Object.keys(bindCandidates(p, { fileId: 'cv' }, new Set())), [file.ref])
   assert.ok(!bindCandidates(p, { value: 'x' }, new Set())[pw.ref])
-  assert.ok(bindCandidates(p, { value: 'x', secret: true }, new Set())[pw.ref])
+  assert.ok(bindCandidates(p, { value: 'x', secret: true, origins: [origin] }, new Set())[pw.ref])
   assert.ok(!bindCandidates(p, { value: 'x' }, new Set([text.ref]))[text.ref])
   assert.ok(!targets(p, new Set([text.ref])).TYPE_TEXT[text.ref])
 })
 test('request has one bind head per pending input, masks secrets and summarizes status from records', () => {
   const name = el('Full name'), pw = el('Password', { password: true }), go = button('Continue')
   const p = page([name, pw, go])
-  const t = task({ inputs: { name: { value: 'Alex', purpose: 'full name' }, pw: { value: 's3cr3t', purpose: 'password', secret: true }, later: { fileId: 'cv', purpose: 'résumé' } } })
+  const t = task({ inputs: { name: { value: 'Alex', purpose: 'full name' }, pw: { value: 's3cr3t', purpose: 'password', secret: true, origins: [origin] }, later: { fileId: 'cv', purpose: 'résumé' } } })
   const b = build(p, t, [])
   assert.deepEqual(Object.values(b.binds).map(x => x.valueId), ['name', 'pw'])
   assert.ok(!JSON.stringify(b.payload).includes('s3cr3t'))
@@ -183,7 +183,7 @@ test('an invalid operation answer executes nothing', async () => {
 test('secrets stay out of every model payload and handoff', async () => {
   n = 0
   const pw = el('Password', { password: true }), f = fake([pw]), seen = []
-  await run(task({ inputs: { pw: { value: 'hunter2!', purpose: 'account password', secret: true } } }), f, async payload => { seen.push(JSON.stringify(payload)); return answer({ op: () => ['DONE'] })(payload) })
+  await run(task({ inputs: { pw: { value: 'hunter2!', purpose: 'account password', secret: true, origins: [origin] } } }), f, async payload => { seen.push(JSON.stringify(payload)); return answer({ op: () => ['DONE'] })(payload) })
   assert.ok(seen.length && seen.every(s => !s.includes('hunter2!')))
   assert.equal(f.s.executed[0].text, 'hunter2!')
 })
@@ -238,4 +238,38 @@ test('search/submit-like R2 targets need 0.6; other R2 targets 0.5 with margin',
     await run(task(), f, ask, async h => { kinds.push(h.kind); return {} })
     assert.equal(kinds.includes('choose'), expectHandoff, target.name)
   }
+})
+test('secrets bind only on documents of their own origins', () => {
+  n = 0
+  const pw = el('Password', { password: true }), p = page([pw])
+  assert.ok(bindCandidates(p, { value: 'x', secret: true, origins: [origin] }, new Set())[pw.ref])
+  assert.deepEqual(bindCandidates(p, { value: 'x', secret: true, origins: ['https://idp.test'] }, new Set()), {})
+})
+test('Enter is judged as the form submit control; a POST delete form is R3', () => {
+  n = 0
+  const q = el('Reason', { form: 'f1', formMethod: 'post' }), del = button('Delete account', { form: 'f1', submit: true, formMethod: 'post' })
+  assert.equal(tier('PRESS_ENTER', q, page([q, del])), 'R3')
+  const s = el('Query', { form: 'f2' }), go = button('Search', { form: 'f2', submit: true })
+  assert.equal(tier('PRESS_ENTER', s, page([s, go])), 'R2')
+})
+test('a page confirm() dialog is the confirmation point: denied first, repeated only after approval', async () => {
+  n = 0
+  const cancel = button('Cancel reservation')
+  for (const [mode, approve, expected, executions] of [['confirm', true, 'done', 2], ['confirm', false, 'blocked', 1], ['deny', false, 'needs_confirmation', 1]]) {
+    const f = fake([cancel]), call = f.call
+    f.call = async (name, args) => { const r = await call(name, args); return args.action === 'agent_execute' && !args.acceptConfirm ? { ...r, confirmDenied: 'Cancel this reservation?' } : r }
+    let asks = 0
+    const kinds = []
+    const { result } = await run(task({ irreversible: mode }), f, async p => { asks++; return answer({ op: () => asks === 1 ? ['CLICK', cancel.ref] : ['DONE'] })(p) }, async h => { kinds.push(h.reason); return { approve } })
+    assert.equal(result.status, expected, mode + approve); assert.equal(f.s.executed.length, executions)
+    if (executions === 2) assert.equal(f.s.executed[1].acceptConfirm, true)
+    if (mode === 'confirm') assert.deepEqual(kinds, ['page_confirm_dialog'])
+  }
+})
+test('options cut at 254 per head are reported in state', () => {
+  n = 0
+  const many = Array.from({ length: 260 }, (_, i) => button(`Item ${i}`))
+  const b = build(page(many), task(), [])
+  assert.equal(Object.keys(b.payload.questions.target_CLICK.criteria).length, 254)
+  assert.equal(b.payload.state.omittedTargets.CLICK, 6)
 })

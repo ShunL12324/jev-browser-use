@@ -74,7 +74,8 @@ export function build(page, task, history) {
   const inputSummary = { applied: Object.keys(inputs).length - open.length, pendingWithCompatibleFieldHere: open.filter(i => i.fieldsOnThisPage).length, pendingWithoutFieldHere: open.filter(i => !i.fieldsOnThisPage).length,
     pendingPurposesWithoutFieldHere: open.filter(i => !i.fieldsOnThisPage).map(i => i.purpose).slice(0, 12),
     note: 'Counts come from host execution records. Pending inputs without a field here usually belong to a later page or a row that must be added first.' }
-  const state = { goal: task.goal, ...(unsubmitted.length ? { unsubmittedTextFields: { fields: [...new Set(unsubmitted.map(f => f.name))], note: 'Typed into a form that has not been submitted since (host record). The typed value may not take effect until the form is submitted.', submitButtons: [...submitters.keys()] } } : {}), page: { url: page.url, title: page.title, text: page.text, ...(page.omitted ? { omittedElements: page.omitted } : {}) },
+  const omittedTargets = targets.omitted ?? {}
+  const state = { goal: task.goal, ...(Object.keys(omittedTargets).length ? { omittedTargets } : {}), ...(page.dialogs?.length ? { recentDialogs: page.dialogs } : {}), ...(unsubmitted.length ? { unsubmittedTextFields: { fields: [...new Set(unsubmitted.map(f => f.name))], note: 'Typed into a form that has not been submitted since (host record). The typed value may not take effect until the form is submitted.', submitButtons: [...submitters.keys()] } } : {}), page: { url: page.url, title: page.title, text: page.text, ...(page.omitted ? { omittedElements: page.omitted } : {}) },
     elements: page.elements.map(compact), inputSummary, inputs,
     recentActions: history.slice(-10).map(h => ({ op: h.op, target: h.name, ...(h.valueId ? { input: h.valueId } : {}), result: h.postcondition ?? (h.changed ? 'page changed' : 'no visible change') })) }
   const payload = { state, questions }

@@ -39,8 +39,10 @@ export function targets(page, used = new Set()) {
     // Long native lists stay reachable through supplied-input binding.
     if (e.tag === 'select' && e.options?.length <= 40) e.options.forEach((o, i) => { if (!o.disabled && o.value !== '' && o.value !== e.value) out.SELECT[`${e.ref}:${i}`] = { ref: e.ref, value: o.value, label: o.label } })
   }
-  for (const op of Object.keys(out)) if (Object.keys(out[op]).length > MAX_TARGETS) out[op] = Object.fromEntries(Object.entries(out[op]).slice(0, MAX_TARGETS))
-  return out
+  // Heads are capped at 254 options; the cut is reported, never silent.
+  const omitted = {}
+  for (const op of Object.keys(out)) if (Object.keys(out[op]).length > MAX_TARGETS) { omitted[op] = Object.keys(out[op]).length - MAX_TARGETS; out[op] = Object.fromEntries(Object.entries(out[op]).slice(0, MAX_TARGETS)) }
+  return Object.defineProperty(out, 'omitted', { value: omitted, enumerable: false })
 }
 
 export function pageOperations(page, history, used) {
@@ -61,6 +63,8 @@ export function pageOperations(page, history, used) {
 const typed = (e, v) => e.inputType === 'date' ? /^\d{4}-\d{2}-\d{2}$/.test(v) : e.inputType === 'number' ? /^-?\d+(\.\d+)?$/.test(v) : e.inputType === 'email' ? v.includes('@') : true
 export function bindCandidates(page, input, used) {
   const out = {}
+  // Secrets are origin-bound for the acting document, not just at start.
+  if (input.secret) { let origin; try { origin = new URL(page.url).origin } catch { return out } if (!input.origins?.includes(origin)) return out }
   for (const e of page.elements.filter(usable)) {
     if (used.has(e.ref)) continue
     if (input.fileId) { if (e.inputType === 'file' && !e.files) out[e.ref] = { ref: e.ref, op: 'upload' }; continue }
@@ -93,7 +97,7 @@ export function tier(op, e, page) {
   if (['TYPE_TEXT', 'SELECT', 'BIND'].includes(op)) return 'R1'
   if (op === 'GO_BACK') return 'R2'
   if (irreversible(e, page)) return 'R3'
-  if (op === 'PRESS_ENTER') return 'R2'
+  if (op === 'PRESS_ENTER') return e?.form && irreversible(page.elements.find(x => x.submit && x.form === e.form) ?? { ...e, submit: true, name: '', editable: false }, page) ? 'R3' : 'R2'
   if (e.editable || e.tag === 'summary' || e.expanded !== null && e.expanded !== undefined || e.hasPopup || e.role === 'tab') return 'R0'
   if (['option', 'menuitemradio', 'menuitemcheckbox', 'checkbox', 'radio', 'switch'].includes(e.role) || ['checkbox', 'radio'].includes(e.inputType)) return 'R1'
   if (e.href) { try { const u = new URL(e.href), p = new URL(page.url); return u.origin + u.pathname + u.search === p.origin + p.pathname + p.search && u.hash ? 'R0' : 'R2' } catch { return 'R2' } }

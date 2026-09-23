@@ -133,8 +133,15 @@ function installDialogOverrides() {
     return undefined
   } as typeof window.alert
 
+  // browser_task sets data-jev-confirm on <html> around its own actions:
+  // "deny" answers false and reports the message (the page's commit is
+  // aborted); "accept-once" answers true once. Without it, behaviour is
+  // unchanged (accept). Messages cross worlds as DOM attribute strings.
   window.confirm = function (msg?: unknown) {
     push({ type: 'confirm', message: String(msg ?? ''), ts: Date.now() })
+    const root = document.documentElement, policy = root?.getAttribute('data-jev-confirm')
+    if (policy === 'deny') { root.setAttribute('data-jev-confirm-denied', String(msg ?? '').slice(0, 500)); return false }
+    if (policy === 'accept-once') root.setAttribute('data-jev-confirm', 'deny')
     return true
   } as typeof window.confirm
 
@@ -154,6 +161,11 @@ function installDialogOverrides() {
 }
 
 function push(d: CapturedDialog) {
+  // Recent dialog texts for observation (e.g. an alert carrying a result).
+  try {
+    const root = document.documentElement, recent = JSON.parse(root.getAttribute('data-jev-dialogs') ?? '[]')
+    root.setAttribute('data-jev-dialogs', JSON.stringify([...recent, { type: d.type, message: d.message.slice(0, 300) }].slice(-5)))
+  } catch { /* observation aid only */ }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const state = (window as any)[STATE_KEY] as { captured: CapturedDialog[] } | undefined
   if (state) state.captured.push(d)
