@@ -19,6 +19,7 @@
 //   - <role>: "<name>" [<ref>]                       interactive
 //   - <role> (disabled): "<name>" [<ref>]
 //   - <role>: "<name>" [<ref>] = "<value>"           input with value
+//   - <role>: "<name>" [<ref>] (checked|unchecked)   checkbox / radio state
 //
 // Walk policy:
 //   - Landmarks (main/nav/aside/header/footer/section[aria-label]/article)
@@ -212,7 +213,10 @@ function emitAction(state: WalkState, el: Element, depth: number): void {
   const role = deriveRole(el)
   const name = nameWithFallback(el, deriveName(el))
   const { ref } = getOrAssignRef(el)
-  const value = getValue(el)
+  // A checkbox/radio `value` is its submission token (default "on"), not its
+  // state; render the checked state instead.
+  const checkable = el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')
+  const value = checkable ? undefined : getValue(el)
   const disabled = isDisabled(el)
 
   let line = `${indentOf(depth)}- ${role}`
@@ -220,6 +224,7 @@ function emitAction(state: WalkState, el: Element, depth: number): void {
   if (name) line += `: "${q(name)}"`
   line += ` [${ref}]`
   if (value) line += ` = ${JSON.stringify(value).slice(0, 80)}`
+  if (checkable) line += (el as HTMLInputElement).checked ? ' (checked)' : ' (unchecked)'
   state.lines.push(line)
   state.actions++
 }
