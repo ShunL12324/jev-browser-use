@@ -63,7 +63,7 @@
 
 | 维度 | 目标 |
 | --- | --- |
-| 速度 | 共享任务（其 Wikipedia 条目任务、本地酒店类过滤任务、Google Flights 只读搜索）交替运行，中位 `agentMs` ≤ jev-ultrafast，且不低于其成功率。TYPE_TEXT 对比时，我们用 provider 模式或调用方预给 `inputs`（§2.4）；handoff 模式单独报告。 |
+| 速度 | 共享任务（其 Wikipedia 条目任务、本地酒店类过滤任务、Google Flights 只读搜索）交替运行，中位 `agentMs` ≤ jev-ultrafast，且不低于其成功率。TYPE_TEXT 对比时，我们用 provider 模式或调用方预给 `inputs`（§2.4）；handoff 模式单独报告。**前提**：它的 TYPE_TEXT 需要 `TEXT_MODEL_API_KEY`（OpenRouter），我们目前没有。在拿到 key 之前，对比只用我们一方的实测（给定相同 inputs），对照它公开的测量（7.09 s / 2.80 s / 1.90 s，不同机器与网络，只作参考而非配对结论）；有 key 时再跑它的适配器做同机交替配对。P1 不因此阻塞。 |
 | 覆盖 | 它不支持的类别（iframe、shadow、上传、弹出 tab/新窗口、嵌套/虚拟滚动、下载）在 T33 套件里有通过任务；它在这些类别的通过数按实际结果记（预期为 0，不预设）。 |
 | 成功率 | 全套件（本地 + 公开只读）成功率高于它，且每个失败都有 trace 与根因。 |
 | 请求数 | 每决策周期 ≤1 次 Jev 请求；复杂表单每页 1 次绑定请求（已达成）。 |
@@ -325,13 +325,14 @@ T33 的能力清单 ID 还没冻结，下表先用类别代号，冻结后逐项
 
 | 阶段 | 内容 | 覆盖类别 | 验收（证明方式） |
 | --- | --- | --- | --- |
-| P1 核心循环，追平再超越 ultrafast | `browser_task` start/continue/status/cancel；无声明目标的元素表；op+target+bind 头；事件 settle；分级守卫；handoff `text/choose/question`；许可；top frame + shadow；bridge hub 模式（§6.5）；专用窗口/tab group；新产品账本 | NAV、FN、FC(部分)、SHD、DLG(cookie) | T33 共享任务（Wikipedia 条目、本地酒店类过滤、Google Flights 只读）与 jev-ultrafast 在同机交替运行：成功率 ≥ 对方，中位 agentMs ≤ 对方；复杂表单**不声明目标**、只给 inputs：4 个 reset 中 ≥3 次 oracle 32/32+PDF，Jev 请求 ≤18，agentMs ≤10 s；门槛校准报告（每级错误执行率与 handoff 率） |
+| P1a 核心循环（WSL 临时 Chromium） | `browser_task` start/continue/status/cancel；无声明目标的元素表；op+target+bind 头；事件 settle；分级守卫；handoff `text/choose/question`；许可；top frame + shadow；新产品账本 | NAV、FN、FC(部分)、SHD、DLG(cookie) | 离线单测 + 临时 Chromium 机械回放（scripted handoff）；真实 Jev：复杂表单**不声明目标**、只给 inputs，4 个 reset 中 ≥3 次 oracle 32/32+PDF，Jev 请求 ≤18，agentMs ≤10 s；T33 共享任务（Wikipedia 条目、本地酒店类过滤、Google Flights 只读）我方成功且给出 agentMs（与 ultrafast 的配对对比按 §0.3 前提）；**门槛校准报告**（每级阈值下的错误执行率、handoff 率、按 p 分桶的正确率；§2.3 的数字只是路由默认值，校准结论是 P1a 验收的一部分） |
+| P1b 真实浏览器与多会话 | bridge hub 模式（§6.5）；专用窗口 + tab group；tab 归属隔离；tester 成员经 `.mcp.json` 在用户 Windows Chrome 上真实运行 | TAB(归属)、NAV、FN | hub：两个 MCP 会话并发互不可见对方 tab，一方退出另一方继续；tester 在用户 Chrome 上跑 P1a 的同一组任务，成功率不低于 P1a 临时 Chromium 结果，报告辅助/自主两栏与 handoff 次数；全程不触碰非任务 tab、不在公开站点提交（trace 审计） |
 | P2 多上下文与回答 | 多 frame 观察/执行；tab 归属、新窗口、弹窗；alert/confirm；分页；`answer_block` + `extract` | IFR、TAB、DLG、PG、EXT | T33 iframe 站（同源+跨源）、弹窗站、分页抽取站：每项 ≥4/5 通过，且在 held-out 布局上 ≥3/5；答案任务由站点 grade 端点判分 |
 | P3 账户与交易 | secretRef 登录；购物车/结账/预订到确认；不可逆分类；下载/上传 | AUTH、TXN、DL、UP | 不可逆漏判 0（每次提交前都有确认 handoff，站点时间戳为证）；`deny` 任务无提交；秘密泄漏 0（harness 扫描）；交易类 ≥4/5 |
 | P4 困难控件 | 虚拟/无限列表、嵌套滚动、日期选择器、富文本、hover 菜单、键盘控件、拖拽（尽力）、慢加载/错误重试；provider 模式 | VL、NS、FC、HOV、KEY、DRG、SLOW、ERR | 每类 ≥1 个本地站任务，≥4/5 通过；拖拽和需要可信事件的任务单独报告，允许标为 known-limit |
 | P5 成熟度 | 公开只读套件；held-out 变体；token/速度优化；文档 | 全部 | 见下 |
 
-**“95%” 的可检验定义**（提议，需 master 与 form-validator 确认）：T33 清单按常见程度加权。加权 ≥95% 的清单项在 held-out 任务上达到 ≥4/5 成功，其余项有明确的 known-limit 说明（例如 canvas、CAPTCHA、需要视觉的任务）。全套件（本地 + 公开只读）总成功率 ≥90%，且每个失败都有 trace 与根因分类。速度：共享任务中位 agentMs 不慢于 jev-ultrafast。
+**“95%” 的可检验定义**（master 已接受，权重待 T33 冻结）：T33 清单按常见程度加权。加权 ≥95% 的清单项在 held-out 任务上达到 ≥4/5 成功，其余项有明确的 known-limit 说明（例如 canvas、CAPTCHA、需要视觉的任务）。全套件（本地 + 公开只读）总成功率 ≥90%，且每个失败都有 trace 与根因分类。速度：共享任务中位 agentMs 不慢于 jev-ultrafast。
 
 ### 6.4 与 T33 的评测接口（已与 form-validator 约定）
 
@@ -352,8 +353,8 @@ T33 的能力清单 ID 还没冻结，下表先用类别代号，冻结后逐项
 
 **17329 端口的共享**：现在一个 bridge 进程独占 17329，扩展只保留最新连接（`ws-host.ts` 遇 `EADDRINUSE` 直接失败；见 `docs/architecture.zh-CN.md` 已知限制）。每个 Claude Code 会话启动 MCP 时都会拉起自己的 bridge，所以 tester、master 和其它成员无法同时使用用户的 Chrome。设计：
 
-1. **短期（P1 之前）**：由 master 串行分配。同一时刻只有一个会话的 `.mcp.json` 启用 bridge，其它成员用 WSL 临时 Chromium + 随机端口（现有机械测试的做法）。
-2. **P1 内实现 hub 模式**：第一个 bridge 在 17329 作为 hub，同时接扩展；后来的 bridge 检测到 `EADDRINUSE` 后不再失败，而是以 client 身份连接 `ws://127.0.0.1:17329/peer`（本地 token 认证），把自己的 MCP 调用转发给 hub。hub 按会话记录 tab 归属：会话只能操作自己创建的 tab/窗口，`tabs list` 只返回自己的 tab；`browser_task` 的会话锁也按会话隔离。hub 退出时，client 自动接替（重新监听并等待扩展重连，扩展已有重连逻辑）。
+1. **短期（P1b 之前）**：由 master 串行分配。同一时刻只有一个会话的 `.mcp.json` 启用 bridge，其它成员用 WSL 临时 Chromium + 随机端口（现有机械测试的做法）。
+2. **P1b 实现 hub 模式**：第一个 bridge 在 17329 作为 hub，同时接扩展；后来的 bridge 检测到 `EADDRINUSE` 后不再失败，而是以 client 身份连接 `ws://127.0.0.1:17329/peer`（本地 token 认证），把自己的 MCP 调用转发给 hub。hub 按会话记录 tab 归属：会话只能操作自己创建的 tab/窗口，`tabs list` 只返回自己的 tab；`browser_task` 的会话锁也按会话隔离。hub 退出时，client 自动接替（重新监听并等待扩展重连，扩展已有重连逻辑）。
 3. 验收：两个 MCP 会话同时运行任务，互不看到或操作对方 tab；任一方退出后另一方在扩展重连后继续。
 
 ## 7. 非目标
@@ -371,5 +372,5 @@ CAPTCHA 与反机器人绕过；需要视觉的页面（canvas 应用、图像�
 | 大页面 token | 超 32k/64k | 视口优先、region 两阶段、精简 facts |
 | 提示注入 | 错误动作 | 代码层许可/确认/秘密；Jev 不是权限边界 |
 | 使用用户真实 profile 的副作用 | 用户 Windows Chrome 已登录账户、历史、cookie | 专用窗口 + tab group、只操作自有 tab、`browser_task` 不含 cookie/eval/request 操作、公开站点不提交、测试站在 localhost；回归用 WSL 临时 profile |
-| 端口 17329 单会话 | 多个成员无法同时测试 | §6.5：短期由 master 串行，P1 做 hub 模式 |
+| 端口 17329 单会话 | 多个成员无法同时测试 | §6.5：短期由 master 串行，P1b 做 hub 模式 |
 | 小样本结论 | 夸大能力 | 所有报告写 n、种子、held-out 强弱，失败保留 |
