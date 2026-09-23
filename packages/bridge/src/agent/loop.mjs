@@ -3,7 +3,7 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize } from './jev.mjs'
-import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, norm } from './space.mjs'
+import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
 const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
@@ -22,7 +22,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
   const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
   const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
-  let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false
+  let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false
+  const taskTabs = new Map()
   const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }
   const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, metrics: m, ...extra } }
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
@@ -34,6 +35,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         await delay(100, undefined, { signal })
       }
     }
+    page.tabs = taskTabs.size > 1 ? [...taskTabs.values()].map(t => ({ id: t.id, title: t.title ?? '', url: t.url ?? '', current: t.id === tabId })) : []
     // Secret plaintext typed into a non-password field must not re-enter state.
     for (const secret of secrets) { page.text = page.text.split(secret).join('‹secret›'); for (const e of page.elements) if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›') }
     emit({ event: 'observation', documentId: page.documentId, url: page.url, elements: page.elements.length, omitted: page.omitted, textChars: page.text.length })
@@ -50,6 +52,43 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   }
   const confirm = async (question, reason) => task.irreversible !== 'confirm' && reason !== 'allow_origin' ? { deny: true } : toCaller('confirm', { question, reason, expects: { approve: 'boolean' } })
 
+  // Waits until the page is quiet, timed here (Node timers are not throttled
+  // like page timers in an unfocused window): one quiet 25 ms interval of the
+  // page's mutation counter, capped at 150 ms; after typing into a combobox,
+  // visible options that stay the same for two polls, capped at 800 ms.
+  const settle = async (op, el, quick) => {
+    const state = () => call('s1', { tabId, action: 'agent_settle' }, signal)
+    const combobox = op === 'type' && (el?.role === 'combobox' || !!el?.hasPopup), cap = op === 'wait' ? 300 : combobox ? 800 : 150, start = now()
+    let last = await state(), denied = last.confirmDenied, quiet = 0
+    if (!settleEnvSeen) { settleEnvSeen = true; emit({ event: 'settle_env', visibility: last.visibility, focused: last.focused }) }
+    if (quick && !combobox) return last
+    while (!last.navigating && now() - start < cap) {
+      await delay(combobox ? 50 : 25, undefined, { signal })
+      const s = await state(); denied ??= s.confirmDenied
+      quiet = s.mutations === last.mutations && (!combobox || s.options > 0 && s.optionsSig === last.optionsSig) ? quiet + 1 : 0
+      last = s
+      if (op !== 'wait' && quiet >= (combobox ? 2 : 1)) break
+    }
+    return { ...last, confirmDenied: denied }
+  }
+  // Tabs opened by this task's tabs (target=_blank, window.open) are adopted:
+  // the task follows the newest one; SWITCH_TAB/CLOSE_TAB reach the others.
+  const adoptNewTabs = async () => {
+    let listed
+    try { listed = await call('tabs', { action: 'list' }, signal) } catch { return }
+    if (!Array.isArray(listed?.tabs)) return
+    const fresh = listed.tabs.filter(t => !taskTabs.has(t.id) && t.openerTabId !== undefined && taskTabs.has(t.openerTabId))
+    for (const t of fresh) taskTabs.set(t.id, t)
+    for (const t of listed.tabs) if (taskTabs.has(t.id)) taskTabs.set(t.id, t)
+    const next = fresh.at(-1)
+    if (!next) return
+    emit({ event: 'tab_adopted', tabId: next.id, opener: next.openerTabId, url: next.url })
+    await focusTab(next.id)
+  }
+  const focusTab = async id => {
+    tabId = id
+    try { await call('tabs', { action: 'switch', tabId: id }, signal) } catch { /* activation is best effort */ }
+  }
   // Executes one operation on the current page, then settles and re-observes.
   const exec = async (op, el, args = {}, valueId, quick = false) => {
     const before = page
@@ -73,7 +112,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     // Between two bindings of one batch no settle round trip is needed: the
     // next binding re-observes and re-checks its own target first.
     let settled = { navigating: false }
-    if (!quick || el?.role === 'combobox' || el?.hasPopup) try { settled = await s1({ action: 'agent_settle', op, ref: el?.ref, quick }, 'settleMs') } catch { settled = { navigating: true } }
+    if (!quick || el?.role === 'combobox' || el?.hasPopup) try { settled = await timed('settleMs', () => settle(op, el, quick)) } catch { settled = { navigating: true } }
+    if (op === 'click' || op === 'key') await adoptNewTabs()
     if (res.crossDocument || settled.navigating || linkAway) {
       // Wait for the next document instead of deciding on the unloading one:
       // up to 15 s once navigation is seen, up to 3 s when only expected.
@@ -105,6 +145,13 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   // Runs a model- or caller-selected operation after its risk checks.
   const act = async (op, target, el, answers, built) => {
     if (op === 'DONE') return result('done', { verification: 'model_done' })
+    if (op === 'SWITCH_TAB' || op === 'CLOSE_TAB') {
+      const before = page
+      if (op === 'CLOSE_TAB') { await call('tabs', { action: 'close', tabId: target.tabId }, signal).catch(() => {}); taskTabs.delete(target.tabId) } else await focusTab(target.tabId)
+      m.steps++; await observe()
+      history.push({ doc: before.documentId, op: op.toLowerCase(), name: target.label, changed: true, navigated: page.documentId !== before.documentId })
+      return
+    }
     if (op === 'TYPE_TEXT') {
       const key = norm(`${el.name}|${el.context?.join('|')}`)
       let text = textCache.get(key)
@@ -167,7 +214,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     const opened = await timed('navigationMs', () => call('tabs', { action: 'new', url: 'about:blank' }, signal))
     tabId = opened.tabId
     if (!Number.isInteger(tabId)) throw new RunError('TAB', 'New tab did not return an id.')
-    emit({ event: 'tab', tabId })
+    emit({ event: 'tab', tabId }); taskTabs.set(tabId, { id: tabId })
     // A slow load event is not fatal: observation retries until the document answers.
     await timed('navigationMs', () => call('navigate', { tabId, url: task.startUrl, timeoutMs: 15000 }, signal)).catch(error => { if (error.code !== 'TIMEOUT') throw error; emit({ event: 'navigation_timeout' }) })
     agentStart = now()
@@ -262,8 +309,9 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       // Joint (operation × target) probability of the choice and its runner-up.
       const joints = Object.entries(opAnswer.probabilities).flatMap(([o, po]) => { const h = invalid.has(`target_${o}`) ? null : answers[`target_${o}`]; return h ? Object.entries(h.probabilities).map(([t, pt]) => [`${o}:${t}`, po * pt]) : [[o, po]] }).sort((a, b) => b[1] - a[1])
       const mine = joints.find(([k]) => k === (id ? `${op}:${id}` : op))?.[1] ?? 0, rival = joints.find(([k]) => k !== (id ? `${op}:${id}` : op))?.[1] ?? 0
-      const thin = level === 'R2' && mine < R2_MARGIN * rival
-      let why = op === 'BLOCKED' ? 'model_blocked' : gateP < (committing ? SUBMIT_GATE : GATES[level] ?? 0) || thin ? `p=${gateP.toFixed(2)}${thin ? ` margin ${(mine / Math.max(rival, 1e-9)).toFixed(2)}` : ''} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress'
+      const safeNav = level === 'R2' && safeNavigation(op, el, page)
+      const thin = level === 'R2' && !safeNav && mine < R2_MARGIN * rival
+      let why = op === 'BLOCKED' ? 'model_blocked' : gateP < (safeNav ? SAFE_NAV_GATE : committing ? SUBMIT_GATE : GATES[level] ?? 0) || thin ? `p=${gateP.toFixed(2)}${thin ? ` margin ${(mine / Math.max(rival, 1e-9)).toFixed(2)}` : ''} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress'
         : unresolved.length && ['R2', 'R3'].includes(level) ? `unresolved inputs: ${unresolved.map(d => d.valueId).join(', ')}` : null
       if (why === 'no_progress' && ++stallHandoffs > 2) return result('blocked', { reason: 'no_progress' })
       // Below a gate, first try the safest informative step the model also

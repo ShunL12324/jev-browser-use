@@ -325,3 +325,32 @@ test('below the R2 gate a close reversible alternative (e.g. a suggestion option
   const { result } = await run(task(), f, ask, async h => { kinds.push(h.kind); return {} })
   assert.deepEqual(f.s.executed.map(e => e.ref), [opt.ref], JSON.stringify(result)); assert.deepEqual(kinds, [])
 })
+test('read-only GET navigation uses the 0.4 gate; a non-form Search keeps 0.6', async () => {
+  for (const [make, expectHandoff] of [[() => button('Search', { submit: true, formMethod: 'get', form: 'f1' }), false], [() => button('Search'), true], [() => button('Article', { role: 'link', href: origin + '/wiki/X' }), false]]) {
+    n = 0
+    const target = make()
+    const f = fake([target, button('Help'), button('About')]), kinds = []
+    let asks = 0
+    const ask = jev(({ questions }) => asks++ ? { operation: choice(questions.operation, 'DONE') } : { operation: choice(questions.operation, 'CLICK'), target_CLICK: { type: 'choice', choice: target.ref, probabilities: spread(Object.keys(questions.target_CLICK.criteria), { [target.ref]: 0.45 }) } })
+    const { result } = await run(task(), f, ask, async h => { kinds.push(h.kind); return {} })
+    assert.equal(kinds.includes('choose'), expectHandoff, target.name); assert.equal(f.s.executed.length, expectHandoff ? 0 : 1, JSON.stringify(result))
+  }
+})
+test('a tab opened by a task tab is adopted and followed; SWITCH_TAB returns to the first', async () => {
+  n = 0
+  const link = button('Open help', { role: 'link', href: origin + '/help' }), f = fake([link]), call = f.call
+  const tabs = [{ id: 7, url: origin + '/', title: 'Main' }]
+  const switched = []
+  f.call = async (name, args) => {
+    if (name === 'tabs' && args.action === 'list') return { ok: true, tabs }
+    if (name === 'tabs' && args.action === 'switch') { switched.push(args.tabId); return { ok: true } }
+    const r = await call(name, args)
+    if (args.action === 'agent_execute' && args.op === 'click') tabs.push({ id: 8, url: origin + '/help', title: 'Help', openerTabId: 7 })
+    return r
+  }
+  let asks = 0
+  const seenTabs = []
+  const { result } = await run(task(), f, async p => { asks++; seenTabs.push(p.state.tabs); return answer({ op: (s, q) => asks === 1 ? ['CLICK', link.ref] : asks === 2 ? ['SWITCH_TAB', 't7'] : ['DONE'] })(p) })
+  assert.deepEqual(switched, [8, 7]); assert.equal(result.tabId, 7)
+  assert.deepEqual(seenTabs[1].map(t => [t.id, t.current]), [['t7', false], ['t8', true]])
+})

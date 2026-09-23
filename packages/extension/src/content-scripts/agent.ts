@@ -164,33 +164,21 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
     : op === 'select' ? target!.value === q.value : op === 'check' ? target!.checked === q.checked : op === 'upload' ? !!target!.files?.length : undefined
   return { ok: true as const, execution: 'returned', crossDocument: crossDocument || formNavigates, ...(applied !== undefined ? { applied } : {}) }
 }
-// Up to two frames or 50 ms. After typing into a combobox, wait until its
-// visible options exist and stop changing (async suggestions), at most 800 ms.
-// Timers bound the waits because background tabs may not run animation frames.
-function settle(q: Req) {
-  return new Promise(resolve => {
-    const start = performance.now(), el = q.ref ? findByRef(q.ref as string) : null
-    const combobox = q.op === 'type' && (el?.getAttribute('role') === 'combobox' || el?.hasAttribute('aria-autocomplete') || el?.hasAttribute('list'))
-    let frames = 0, done = false
-    const finish = () => { if (!done) { done = true; takeDenied().then(denied => resolve({ ok: true, navigating, ms: Math.round(performance.now() - start), ...(denied !== undefined ? { confirmDenied: denied } : {}) })) } }
-    if (combobox) {
-      let last = '', stable = 0
-      const poll = () => {
-        if (done) return
-        const now = Array.from(document.querySelectorAll('[role="option"]')).filter(o => inView(o.getBoundingClientRect())).map(o => o.textContent).join('|')
-        stable = now && now === last ? stable + 1 : 0; last = now
-        if (stable >= 2 || performance.now() - start > 800) finish(); else setTimeout(poll, 50)
-      }
-      setTimeout(poll, 50); return
-    }
-    setTimeout(finish, q.op === 'wait' ? 300 : q.quick ? 16 : 50)
-    const tick = () => { if (done) return; if (++frames >= 2 && q.op !== 'wait') finish(); else requestAnimationFrame(tick) }
-    requestAnimationFrame(tick)
-  })
+// Settle state, answered immediately: the bridge does all waiting with its
+// own (unthrottled) timers and polls this. A MutationObserver counter tells
+// when the page has gone quiet, so background/unfocused windows, where page
+// timers and animation frames are throttled, do not slow the agent down.
+let mutations = 0
+new MutationObserver(records => { mutations += records.length }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true })
+async function settle() {
+  const options = Array.from(document.querySelectorAll('[role="option"]')).filter(o => inView(o.getBoundingClientRect()))
+  const denied = await takeDenied()
+  return { ok: true, navigating, mutations, options: options.length, optionsSig: hash(options.map(o => o.textContent).join('|')),
+    visibility: document.visibilityState, focused: document.hasFocus(), ...(denied !== undefined ? { confirmDenied: denied } : {}) }
 }
 export async function handleAgent(q: Req) {
   if (q.action === 'agent_observe') return observe(Number(q.limit ?? 400))
   if (q.action === 'agent_execute') return execute(q)
-  if (q.action === 'agent_settle') return settle(q)
+  if (q.action === 'agent_settle') return settle()
   return reject('UNSUPPORTED')
 }

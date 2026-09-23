@@ -17,6 +17,8 @@ export const OPERATIONS = {
   SCROLL_UP: 'Scroll the page up.',
   WAIT: 'Wait briefly for loading or an update that is visibly in progress.',
   GO_BACK: 'Go back to the previous page.',
+  SWITCH_TAB: 'Switch to another tab of this task (e.g. one a link opened).',
+  CLOSE_TAB: 'Close another tab of this task that is no longer needed.',
   DONE: 'Every requirement of the goal is visibly satisfied now.'
 }
 
@@ -28,7 +30,7 @@ export function describe(e) {
 // Fields holding an applied supplied input are protected: no operation head
 // may retype, reselect or toggle them (bind owns them).
 export function targets(page, used = new Set()) {
-  const out = { CLICK: {}, TYPE_TEXT: {}, SELECT: {}, PRESS_ENTER: {} }
+  const out = { CLICK: {}, TYPE_TEXT: {}, SELECT: {}, PRESS_ENTER: {}, SWITCH_TAB: {}, CLOSE_TAB: {} }
   for (const e of page.elements.filter(usable)) {
     if (e.inputType === 'file' || e.password) continue
     if (used.has(e.ref)) { if (e.editable && e.value && e.tag !== 'textarea') out.PRESS_ENTER[e.ref] = { ref: e.ref }; continue }
@@ -51,6 +53,10 @@ export function pageOperations(page, history, used) {
   for (const op of ['CLICK', 'TYPE_TEXT', 'SELECT', 'PRESS_ENTER']) if (Object.keys(t[op]).length) ops[op] = OPERATIONS[op]
   if (page.scroll.y + page.scroll.viewport < page.scroll.height - 2) ops.SCROLL_DOWN = OPERATIONS.SCROLL_DOWN
   if (page.scroll.y > 0) ops.SCROLL_UP = OPERATIONS.SCROLL_UP
+  if (page.tabs?.length > 1) {
+    for (const tb of page.tabs) if (!tb.current) { t.SWITCH_TAB[`t${tb.id}`] = { tabId: tb.id, label: `${tb.title} (${tb.url})` }; t.CLOSE_TAB[`t${tb.id}`] = { tabId: tb.id, label: `${tb.title} (${tb.url})` } }
+    ops.SWITCH_TAB = OPERATIONS.SWITCH_TAB; ops.CLOSE_TAB = OPERATIONS.CLOSE_TAB
+  }
   ops.WAIT = OPERATIONS.WAIT
   if (history.some(h => h.navigated)) ops.GO_BACK = OPERATIONS.GO_BACK
   // No BLOCKED head: an unsure model spreads mass there. Low confidence and
@@ -93,7 +99,7 @@ export function irreversible(e, page) {
   return null
 }
 export function tier(op, e, page) {
-  if (['SCROLL_DOWN', 'SCROLL_UP', 'WAIT'].includes(op)) return 'R0'
+  if (['SCROLL_DOWN', 'SCROLL_UP', 'WAIT', 'SWITCH_TAB', 'CLOSE_TAB'].includes(op)) return 'R0'
   if (['TYPE_TEXT', 'SELECT', 'BIND'].includes(op)) return 'R1'
   if (op === 'GO_BACK') return 'R2'
   if (irreversible(e, page)) return 'R3'
@@ -113,3 +119,11 @@ export function tier(op, e, page) {
 export const GATES = { R0: 0, R1: 0.4, R2: 0.5 }
 export const R2_MARGIN = 1.3
 export const SUBMIT_GATE = 0.6
+// Read-only navigation (same-origin GET link or GET form submit) is reversible
+// with GO_BACK: argmax at ≥0.4 without a margin (calibrated on few samples).
+export const SAFE_NAV_GATE = 0.4
+export function safeNavigation(op, e, page) {
+  if (!e) return false
+  if (op === 'CLICK' && e.href && !e.submit) { try { return new URL(e.href).origin === new URL(page.url).origin } catch { return false } }
+  return (op === 'PRESS_ENTER' || e.submit) && String(e.formMethod ?? '').toLowerCase() === 'get'
+}

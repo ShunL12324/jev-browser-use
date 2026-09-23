@@ -42,10 +42,10 @@ export function build(page, task, history) {
   }
   const submitters = new Map(page.elements.filter(b => b.submit && unsubmitted.some(f => f.form === b.form)).map(b => [b.ref, unsubmitted.filter(f => f.form === b.form).map(f => f.name)]))
   const questions = { operation: { type: 'choice', instructions: RULES, criteria: ops } }
-  for (const op of ['CLICK', 'TYPE_TEXT', 'SELECT', 'PRESS_ENTER']) {
+  for (const op of ['CLICK', 'TYPE_TEXT', 'SELECT', 'PRESS_ENTER', 'SWITCH_TAB', 'CLOSE_TAB']) {
     if (!ops[op]) continue
     const byRef = Object.fromEntries(page.elements.map(e => [e.ref, e]))
-    questions[`target_${op}`] = { type: 'choice', instructions: op === 'CLICK' ? `${RULES}\n${TARGET} Operation: ${op}.` : `${TARGET} Operation: ${op}.`, criteria: Object.fromEntries(Object.entries(targets[op]).map(([id, t]) => [id, op === 'SELECT' ? `${describe(byRef[t.ref])} → option "${t.label}"` : describe(byRef[t.ref]) + (submitters.has(t.ref) ? ` — submits the form with unsubmitted text in ${submitters.get(t.ref).join(', ')}` : '')])) }
+    questions[`target_${op}`] = { type: 'choice', instructions: op === 'CLICK' ? `${RULES}\n${TARGET} Operation: ${op}.` : `${TARGET} Operation: ${op}.`, criteria: Object.fromEntries(Object.entries(targets[op]).map(([id, t]) => [id, t.tabId ? `tab ${t.label}` : op === 'SELECT' ? `${describe(byRef[t.ref])} → option "${t.label}"` : describe(byRef[t.ref]) + (submitters.has(t.ref) ? ` — submits the form with unsubmitted text in ${submitters.get(t.ref).join(', ')}` : '')])) }
   }
   // Speculative text head: when typing is offered, Jev may pick the literal
   // text from spans of the goal (pre-parsed value extraction); otherwise the
@@ -87,7 +87,7 @@ export function build(page, task, history) {
     note: 'Counts come from host execution records. Pending inputs without a field here usually belong to a later page or a row that must be added first.' }
   const omittedTargets = targets.omitted ?? {}
   const state = { goal: task.goal, ...(Object.keys(omittedTargets).length ? { omittedTargets } : {}), ...(page.dialogs?.length ? { recentDialogs: page.dialogs } : {}), ...(unsubmitted.length ? { unsubmittedTextFields: { fields: [...new Set(unsubmitted.map(f => f.name))], note: 'Typed into a form that has not been submitted since (host record). The typed value may not take effect until the form is submitted.', submitButtons: [...submitters.keys()] } } : {}), page: { url: page.url, title: page.title, text: page.text, ...(page.omitted ? { omittedElements: page.omitted } : {}) },
-    elements: page.elements.map(compact), inputSummary, inputs,
+    elements: page.elements.map(compact), ...(page.tabs?.length ? { tabs: page.tabs.map(t => ({ id: `t${t.id}`, title: t.title, url: t.url, current: t.current })) } : {}), inputSummary, inputs,
     recentActions: history.slice(-10).map(h => ({ op: h.op, target: h.name, ...(h.valueId ? { input: h.valueId } : {}), result: h.notSent ?? (h.confirmed ? `executed after the caller approved the page confirmation "${h.confirmed}"` : h.postcondition ?? (h.changed ? 'page changed' : 'no visible change')), ...(h.newText ? { newText: h.newText } : {}) })) }
   const payload = { state, questions }
   const bytes = Buffer.byteLength(JSON.stringify(payload))

@@ -42,7 +42,7 @@ export async function launchIsolated({ files, headless = true } = {}) {
   // Waits for the extension to connect before the first real call.
   for (let i = 0; i < 100; i++) { try { await tool('browser_tabs', { action: 'list' }, 2000); break } catch { await new Promise(r => setTimeout(r, 100)) } }
   const call = (name, args) => { const { tabId, ...rest } = args; return name === 's1' ? tool('browser_agent_page', { tabId, request: rest }) : tool(`browser_${name}`, args) }
-  return { tool, call, context, temp, close: async () => { await client.close(); await context.close(); await rm(temp, { recursive: true, force: true }) } }
+  return { tool, call, context, temp, port, env, close: async () => { await client.close(); await context.close(); await rm(temp, { recursive: true, force: true }) } }
 }
 // Drives one browser_task through the MCP tool, answering handoffs with a
 // caller-supplied function (scripted/deny/stub modes). Returns result + log.
