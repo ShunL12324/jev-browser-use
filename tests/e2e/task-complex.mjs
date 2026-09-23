@@ -52,6 +52,8 @@ try {
       const target = option ?? trigger ?? (rows && rows < d.experience.length ? named('Add work experience') : null) ?? ['Confirm and submit', 'Submit application', 'Continue'].map(named).find(Boolean)
       const op = state.page.text.includes('Application received') ? 'DONE' : loading || pending ? 'WAIT' : target ? 'CLICK' : 'WAIT'
       answers.operation = pick(questions.operation, op)
+      for (const [key, q] of Object.entries(questions)) if (key.startsWith('field_')) answers[key] = pick(q, 'keep')
+      if (questions.text_value) answers.text_value = pick(questions.text_value, 'caller')
       for (const [key, q] of Object.entries(questions)) if (key.startsWith('target_')) answers[key] = pick(q, key === 'target_CLICK' && target ? target.id : Object.keys(q.criteria)[0])
       return { answers, usage: { input_tokens: 0 } }
     }
@@ -63,7 +65,12 @@ try {
   }
   let oracle
   for (let i = 0; i < 20; i++) { oracle = await (await fetch(`${origin}/api/oracle/${fixture.runId}`)).json(); if (oracle.submitted) break; await new Promise(r => setTimeout(r, 100)) }
-  const summary = { live, seed, variant, status: run.result.status, reason: run.result.reason ?? run.result.code, correct: `${oracle.correctFields}/${oracle.totalFields}`, upload: oracle.upload?.correct, passed: oracle.passed, metrics: run.result.metrics, handoffs: run.handoffs, tracePath: run.result.tracePath }
+  // Bind correctness from the trace (test-side label map): calibration input.
+  const events = live ? (await readFile(run.result.tracePath, 'utf8')).trim().split('\n').map(l => JSON.parse(l)) : JSON.parse('[' + (await readFile(`${out}/mechanical-events.jsonl`, 'utf8')).trim().split('\n').join(',') + ']')
+  const pOf = {}
+  for (const e of events.filter(e => e.event === 'decision')) for (const a of e.accepted) pOf[a.valueId] = a.p
+  const binds = events.filter(e => e.event === 'execute' && e.valueId).map(e => { const [label, context] = labels[e.valueId] ?? ['Résumé PDF']; return { valueId: e.valueId, p: pOf[e.valueId], correct: e.name === label && (!context || (e.context ?? []).includes(context)) } })
+  const summary = { live, seed, variant, binds: { total: binds.length, correct: binds.filter(b => b.correct).length, wrong: binds.filter(b => !b.correct) }, status: run.result.status, reason: run.result.reason ?? run.result.code, correct: `${oracle.correctFields}/${oracle.totalFields}`, upload: oracle.upload?.correct, passed: oracle.passed, metrics: run.result.metrics, handoffs: run.handoffs, tracePath: run.result.tracePath }
   await mkdir(out, { recursive: true }); await writeFile(`${out}/complex-${seed}-${variant}-${Date.now()}.json`, JSON.stringify({ summary, oracle }, null, 2))
   console.log(JSON.stringify(summary))
   if (!live) assert.equal(oracle.passed, true, JSON.stringify(summary))

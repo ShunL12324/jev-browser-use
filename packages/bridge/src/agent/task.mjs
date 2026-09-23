@@ -85,7 +85,7 @@ export async function startTask(raw, { host, ask = askJev, ledgerPath = process.
         emit({ event: 'jev_error', code: e.code, diagnostic: e.diagnostic, validation: e.validation, usage: e.usage })
         // A TCP connect timeout proves the request never left this host, so one
         // new attempt (separately reserved in the ledger) cannot double-send.
-        if (attempt === 0 && e.diagnostic?.causeCode === 'UND_ERR_CONNECT_TIMEOUT') continue
+        if (attempt < 2 && e.diagnostic?.causeCode === 'UND_ERR_CONNECT_TIMEOUT') continue
         throw e
       }
     }

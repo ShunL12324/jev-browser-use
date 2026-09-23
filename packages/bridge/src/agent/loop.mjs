@@ -3,11 +3,15 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers } from './jev.mjs'
-import { bindCandidates, describe, tier, irreversible, GATES, norm } from './space.mjs'
+import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, norm } from './space.mjs'
 
 const now = () => performance.now()
 const originOf = url => { try { return new URL(url).origin } catch { return null } }
-const identity = page => JSON.stringify([page.documentId, page.url, page.elements.map(e => [e.ref, e.role, e.name, e.context]).sort((a, b) => a[0] < b[0] ? -1 : 1)])
+// A judgment stays usable for one target while the document, URL and that
+// target's identity (role, name, context, dialog) are unchanged. Unrelated
+// list updates elsewhere do not invalidate it; the executor still checks the
+// target's own facts before acting.
+const sameTarget = (judged, page, ref) => { const a = judged.elements.find(e => e.ref === ref), b = page.elements.find(e => e.ref === ref); return !!a && !!b && judged.documentId === page.documentId && judged.url === page.url && JSON.stringify([a.role, a.name, a.context, a.dialog]) === JSON.stringify([b.role, b.name, b.context, b.dialog]) }
 
 export async function runTask(task, { call, ask, handoff, emit = () => {}, signal, files = () => { throw new RunError('FILE_UNAUTHORIZED', 'No file manifest.') } }) {
   const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
@@ -46,7 +50,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     const before = page
     const request = { action: 'agent_execute', documentId: page.documentId, url: page.url, op, ...(el ? { ref: el.ref, guard: el.guard } : {}), ...args }
     if (op === 'upload') { request.files = [files(args.fileId)]; delete request.fileId }
-    emit({ event: 'execute', op, ref: el?.ref, name: el?.name, valueId })
+    emit({ event: 'execute', op, ref: el?.ref, name: el?.name, context: el?.context, valueId })
     let res
     try { res = await s1(request, 'execMs') } catch (error) { emit({ event: 'outcome', execution: 'unknown', code: error.code }); throw new RunError('OUTCOME_UNKNOWN', 'Execution transport failed; the action is not replayed.') }
     if (res.execution === 'not_sent') { m.stale++; emit({ event: 'outcome', execution: 'not_sent', code: res.code }); await observe(); return { sent: false, code: res.code } }
@@ -63,18 +67,20 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     const postcondition = !valueId ? undefined : page.documentId !== before.documentId ? 'unknown'
       : op === 'type' ? (after?.value === args.text ? 'met' : 'unmet') : op === 'select' ? (after?.value === args.value ? 'met' : 'unmet')
       : op === 'check' ? (after?.checked === args.checked ? 'met' : 'unmet') : op === 'upload' ? (after?.files ? 'met' : 'unmet') : 'unknown'
-    const entry = { op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, navigated: page.documentId !== before.documentId }
+    const entry = { op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
     stalls = changed || op === 'wait' ? 0 : stalls + 1
     return { sent: true, ...entry }
   }
   const OP = { CLICK: 'click', PRESS_ENTER: 'key', SCROLL_DOWN: 'scroll_down', SCROLL_UP: 'scroll_up', WAIT: 'wait', GO_BACK: 'back' }
   // Runs a model- or caller-selected operation after its risk checks.
-  const act = async (op, target, el) => {
+  const act = async (op, target, el, answers, built) => {
     if (op === 'DONE') return result('done', { verification: 'model_done' })
     if (op === 'TYPE_TEXT') {
       const key = norm(`${el.name}|${el.context?.join('|')}`)
       let text = textCache.get(key)
+      const span = answers?.text_value, spanP = span?.probabilities?.[span.choice]
+      if (text === undefined && span && span.choice !== 'caller' && spanP >= 0.5) { text = built.spans[Number(span.choice.slice(1)) - 1]; emit({ event: 'text_from_goal', text, p: spanP }) }
       if (text === undefined) {
         const answer = await toCaller('text', { question: `Text to type into this field for the goal: ${describe(el)}`, field: { id: el.ref, label: el.name, role: el.role, value: el.value, context: el.context }, expects: { text: 'string' } })
         if (answer.unavailable) return result('blocked', { reason: 'needs_text' })
@@ -149,6 +155,11 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         else if (p < 0.6) drops.push({ valueId: b.valueId, reason: 'low_probability', p, ref: a.choice })
         else accepted.push({ ...b, ref: a.choice, p })
       }
+      for (const [q, f] of Object.entries(built.fields)) {
+        const a = answers[q], p = a?.probabilities?.[a.choice]
+        if (invalid.has(q)) drops.push({ valueId: `field:${f.ref}`, reason: 'invalid_answer' })
+        else if (a.choice !== 'keep' && p >= 0.7) accepted.push({ field: f, ref: f.ref, valueId: `field:${f.ref}`, args: f.choices[a.choice], p })
+      }
       const perRef = accepted.reduce((c, b) => c.set(b.ref, (c.get(b.ref) ?? 0) + 1), new Map())
       const bindings = accepted.filter(b => perRef.get(b.ref) === 1 || !drops.push({ valueId: b.valueId, reason: 'binding_conflict', ref: b.ref }))
         .sort((a, b) => page.elements.findIndex(e => e.ref === a.ref) - page.elements.findIndex(e => e.ref === b.ref))
@@ -160,9 +171,9 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         const judged = page
         let stopped = false
         for (const [i, b] of bindings.entries()) {
-          if (page !== judged && identity(page) !== identity(judged)) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'identity_changed' }); stopped = true; break }
-          const used = new Set(history.filter(h => h.valueId && h.postcondition === 'met').map(h => h.ref))
-          const c = bindCandidates(page, task.inputs[b.valueId], used)[b.ref], el = page.elements.find(e => e.ref === b.ref)
+          if (page !== judged && !sameTarget(judged, page, b.ref)) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'identity_changed' }); stopped = true; break }
+          const used = new Set(history.filter(h => h.valueId && h.postcondition === 'met').map(h => h.ref)), el = page.elements.find(e => e.ref === b.ref)
+          const c = b.field ? (el && !el.disabled && !used.has(b.ref) ? { op: b.field.op, ...b.args } : null) : bindCandidates(page, task.inputs[b.valueId], used)[b.ref]
           if (!c || !el) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'not_eligible' }); stopped = true; break }
           const r = await exec(c.op, el, c.op === 'upload' ? { fileId: task.inputs[b.valueId].fileId } : { text: c.text, value: c.value, checked: c.checked }, b.valueId, i < bindings.length - 1)
           if (!r.sent || r.postcondition === 'unmet' || r.navigated) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: r.sent ? r.postcondition === 'unmet' ? 'postcondition_unmet' : 'navigated' : 'not_sent' }); stopped = true; break }
@@ -171,7 +182,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         // inputs. Consume it only when every judged input settled cleanly on
         // an unchanged page; anything else is decided by a fresh request.
         const target = built.targets[opAnswer.choice]?.[head?.choice]
-        postBatch = !stopped && !drops.some(d => d.reason !== 'not_now') && identity(page) === identity(judged) && !['DONE', 'WAIT'].includes(opAnswer.choice)
+        postBatch = !stopped && !drops.some(d => d.reason !== 'not_now') && (!target || sameTarget(judged, page, target.ref)) && judged.documentId === page.documentId && !['DONE', 'WAIT'].includes(opAnswer.choice)
           && !(target && bindings.some(b => b.ref === target.ref))
         emit({ event: 'post_batch', consumed: postBatch })
         if (!postBatch) continue
@@ -188,8 +199,13 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       // Unresolved inputs (conflict/low probability/invalid) must not be skipped
       // over by advancing: route R2+ steps to the caller instead.
       const unresolved = drops.filter(d => d.reason !== 'not_now')
-      if (postBatch && (level === 'R3' || p < (GATES[level] ?? 0) || !el && id)) { emit({ event: 'post_batch', skipped: level }); continue }
-      let why = op === 'BLOCKED' ? 'model_blocked' : p < (GATES[level] ?? 0) ? `p=${p.toFixed(2)} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress'
+      if (postBatch && (level === 'R3' || (level === 'R1' ? pOp : p) < (GATES[level] ?? 0) || !el && id || level === 'R2' && p < 0.6)) { emit({ event: 'post_batch', skipped: level }); continue }
+      const gateP = level === 'R1' ? pOp : p
+      // Joint (operation × target) probability of the choice and its runner-up.
+      const joints = Object.entries(opAnswer.probabilities).flatMap(([o, po]) => { const h = invalid.has(`target_${o}`) ? null : answers[`target_${o}`]; return h ? Object.entries(h.probabilities).map(([t, pt]) => [`${o}:${t}`, po * pt]) : [[o, po]] }).sort((a, b) => b[1] - a[1])
+      const mine = joints.find(([k]) => k === (id ? `${op}:${id}` : op))?.[1] ?? 0, rival = joints.find(([k]) => k !== (id ? `${op}:${id}` : op))?.[1] ?? 0
+      const thin = level === 'R2' && mine < R2_MARGIN * rival
+      let why = op === 'BLOCKED' ? 'model_blocked' : gateP < (GATES[level] ?? 0) || thin ? `p=${gateP.toFixed(2)}${thin ? ` margin ${(mine / Math.max(rival, 1e-9)).toFixed(2)}` : ''} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress'
         : unresolved.length && ['R2', 'R3'].includes(level) ? `unresolved inputs: ${unresolved.map(d => d.valueId).join(', ')}` : null
       if (why === 'no_progress' && ++stallHandoffs > 2) return result('blocked', { reason: 'no_progress' })
       // Below a gate, first try the safest informative step the model also
@@ -209,7 +225,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         op = picked.op; id = picked.id
         el = id && page.elements.find(e => e.ref === built.targets[op][id].ref)
       }
-      const outcome = await act(op, id ? built.targets[op][id] : null, el)
+      const outcome = await act(op, id ? built.targets[op][id] : null, el, invalid.has('text_value') ? undefined : answers, built)
       if (outcome) return outcome
     }
   } catch (error) {

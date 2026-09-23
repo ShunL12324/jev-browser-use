@@ -4,7 +4,7 @@
 import { buildSnapshot } from './snapshot'
 import { facts } from './s1'
 import { documentId } from './document'
-import { findByRef } from './refs'
+import { findByRef, getOrAssignRef } from './refs'
 import { shadowOf } from './shadow'
 import { actSetFiles } from './actions'
 import { setNativeValue, dispatchInput, dispatchChange } from './events'
@@ -48,7 +48,7 @@ function observe(limit: number) {
       checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert, readonly: f.readonly, required: f.required, valid: f.valid,
       modalBlocked: f.modalBlocked, dialog: f.dialog, context: f.context, href: f.href, options: f.options, files: f.files?.length, editable: editable(el) && !f.readonly,
       password: input?.type === 'password', submit: f.buttonType === 'submit' || input?.type === 'submit' || input?.type === 'image', formMethod: (el as HTMLInputElement).form?.method ?? null,
-      payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
+      payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, form: (el as HTMLInputElement).form ? getOrAssignRef((el as HTMLInputElement).form!).ref : null, guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
   })
   // The budget keeps the elements nearest the viewport; the model reads them
   // in page order, which is how forms and lists make sense.

@@ -97,4 +97,7 @@ export function tier(op, e, page) {
   if (e.role === 'link') return 'R0'
   return 'R2'
 }
-export const GATES = { R0: 0, R1: 0.4, R2: 0.6 }
+// Routing defaults (see docs; calibrated from traces). R2 also needs a margin
+// over the runner-up operation/target pair.
+export const GATES = { R0: 0, R1: 0.4, R2: 0.5 }
+export const R2_MARGIN = 1.3

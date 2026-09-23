@@ -93,12 +93,14 @@ function fake(elements, { hooks = {}, url = origin + '/' } = {}) {
 const spread = (keys, fixed) => { const rest = keys.filter(k => !(k in fixed)), left = 1 - keys.reduce((t, k) => t + (fixed[k] ?? 0), 0); return Object.fromEntries(keys.map(k => [k, fixed[k] ?? left / rest.length])) }
 const jev = (fn) => async payload => ({ usage: { input_tokens: 5 }, answers: fn(payload) })
 // Default answerer: first candidate for binds; op/target from `op(state)`.
-const answer = ({ bind = () => 0, op = () => ['DONE'], p = 1 } = {}) => jev(({ state, questions }) => {
+const answer = ({ bind = () => 0, op = () => ['DONE'], p = 1, text, fields } = {}) => jev(({ state, questions }) => {
   const out = {}
   const [o, target, po = p] = op(state, questions)
   for (const [id, q] of Object.entries(questions)) {
     if (id.startsWith('bind_')) { const keys = Object.keys(q.criteria), i = bind(q); out[id] = choice(q, i === 'not_now' ? 'not_now' : keys[i], typeof i === 'number' ? 0.95 : 1) }
     else if (id === 'operation') out[id] = choice(q, o, po)
+    else if (id.startsWith('field_')) out[id] = choice(q, fields?.(q) ?? 'keep')
+    else if (id === 'text_value') out[id] = choice(q, text ? Object.keys(q.criteria).find(k => q.criteria[k] === text) : 'caller')
     else out[id] = choice(q, id === `target_${o}` && target ? target : Object.keys(q.criteria)[0])
   }
   return out
@@ -128,7 +130,7 @@ test('below the R2 gate: one scroll fallback, then a choose handoff; llm none bl
   n = 0
   const go = button('Continue')
   const f = fake([go]), shapes = []
-  const ask = jev(({ questions }) => ({ operation: { type: 'choice', choice: 'CLICK', probabilities: spread(Object.keys(questions.operation.criteria), { CLICK: 0.5, SCROLL_DOWN: 0.3 }) }, ...Object.fromEntries(Object.entries(questions).filter(([id]) => id.startsWith('target_')).map(([id, q]) => [id, choice(q, Object.keys(q.criteria)[0])])) }))
+  const ask = jev(({ questions }) => ({ operation: { type: 'choice', choice: 'CLICK', probabilities: spread(Object.keys(questions.operation.criteria), { CLICK: 0.45, SCROLL_DOWN: 0.3 }) }, ...Object.fromEntries(Object.entries(questions).filter(([id]) => id.startsWith('target_')).map(([id, q]) => [id, choice(q, Object.keys(q.criteria)[0])])) }))
   const tall = { ...fake([go]) }; tall.call = async (name, args) => { const r = await f.call(name, args); return args.action === 'agent_observe' ? { ...r, scroll: { y: 0, height: 3000, viewport: 900 } } : r }
   const { result } = await run(task(), tall, ask, async h => { shapes.push(h.kind); return {} })
   assert.deepEqual(f.s.executed.map(e => e.op), ['scroll_down'])
@@ -184,4 +186,22 @@ test('secrets stay out of every model payload and handoff', async () => {
   await run(task({ inputs: { pw: { value: 'hunter2!', purpose: 'account password', secret: true } } }), f, async payload => { seen.push(JSON.stringify(payload)); return answer({ op: () => ['DONE'] })(payload) })
   assert.ok(seen.length && seen.every(s => !s.includes('hunter2!')))
   assert.equal(f.s.executed[0].text, 'hunter2!')
+})
+test('literal text can come from a goal span chosen by Jev, without a handoff', async () => {
+  n = 0
+  const q = el('Destination'), f = fake([q])
+  let asks = 0
+  const { result } = await run(task({ goal: 'Find stays in Lisbon with free cancellation' }), f, async p => { asks++; return answer({ op: () => asks === 1 ? ['TYPE_TEXT', q.ref] : ['DONE'], text: 'Lisbon' })(p) }, async () => { throw Error('no handoff expected') })
+  assert.deepEqual(f.s.executed.map(e => e.text), ['Lisbon']); assert.equal(result.metrics.handoffs, 0)
+})
+test('field heads fill several goal-specified fields in one cycle, then the post-batch operation runs', async () => {
+  n = 0
+  const dest = el('Destination'), cat = el('Category', { tag: 'select', role: 'combobox', editable: false, value: 'all', options: [{ value: 'all', label: 'All' }, { value: 'design', label: 'Design' }] })
+  const free = el('Free cancellation', { role: 'checkbox', inputType: 'checkbox', checked: false, editable: false }), go = button('Find stays')
+  const f = fake([dest, cat, free, go])
+  let asks = 0
+  const pick = q => q.instructions.includes('Destination') ? Object.keys(q.criteria).find(k => q.criteria[k] === 'Lisbon') : q.instructions.includes('Category') ? Object.keys(q.criteria).find(k => q.criteria[k] === 'Design') : 'set'
+  const { result } = await run(task({ goal: 'Find Design stays in Lisbon with Free cancellation' }), f, async p => { asks++; return answer({ fields: asks === 1 ? pick : undefined, op: () => asks === 1 ? ['CLICK', go.ref, 0.9] : ['DONE'] })(p) }, async () => { throw Error('no handoff expected') })
+  assert.deepEqual(f.s.executed.map(e => [e.op, e.text ?? e.value ?? e.checked ?? null]), [['type', 'Lisbon'], ['select', 'design'], ['check', true], ['click', null]])
+  assert.equal(asks, 2); assert.equal(result.status, 'done')
 })
