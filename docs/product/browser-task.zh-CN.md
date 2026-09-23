@@ -43,15 +43,18 @@ node packages/bridge/dist/index.js
 1. 观察任务 tab 顶层文档（含 shadow DOM）：视口上下一屏内、最近的至多 160 个可交互元素，按页面位置排序；视口内可见文本至多 6000 字符；省略数进入 state。
 2. 一次 Jev 请求，题目并行：
    - `operation`：CLICK / TYPE_TEXT / SELECT / PRESS_ENTER / SCROLL_DOWN / SCROLL_UP / WAIT / GO_BACK / DONE（只列有目标的操作；没有 BLOCKED 选项）。
-   - `target_<OP>`：每个可用操作一道目标题，只列兼容元素；与操作题使用同一组规则。
-   - `bind_<n>`：每个未施加的 `inputs`/`files` 一道题，候选是**所有类型兼容**的字段（日期值只配日期/文本字段，数字只配数字/文本，select 需有同名选项，radio 名称需等于值，checkbox 需 true/false，文件只配文件输入，密码字段只接受 secret）+ `not_now`。不需要声明目标。
+   - `target_<OP>`：每个可用操作一道目标题，只列兼容元素；与操作题使用同一组规则。没有可访问名称的控件不提供（模型无从判断）；已由 input/field 填好的字段不再作为输入/选择/点击目标。
+   - `bind_<n>`：每个未施加的 `inputs`/`files` 一道题，候选是**所有类型兼容**的字段（日期值只配日期/文本字段，数字只配数字/文本，select 需有同名选项，radio 名称需等于值，checkbox 需 true/false，自定义 option/radio/tab 的可访问名称需等于值（点击选择），文件只配文件输入，密码字段只接受 secret）+ `not_now`。不需要声明目标。
    - `field_<n>`：视口内、没有任何待施加 input 能填的字段（至多 12 个），问“目标文字是否规定了这个字段的值”：文本字段从目标文字的短语中选、select 从选项中选、checkbox/radio 只问是否勾选；否则 `keep`。
    - `text_value`：提供 TYPE_TEXT 时，从目标文字的短语中选要输入的原文；都不合适则选 `caller`（再走 text handoff）。
 3. 策略（代码）：
    - 被接受的 bind（p ≥ 0.6、不冲突）和 field（p ≥ 0.7、非 keep）按页面顺序逐个执行；每个执行前重新观察，要求文档/URL 不变、该目标的 role/name/context/dialog 不变、仍可用；执行器再比较目标自身事实（值、状态与所在 form/行/对话框文字的哈希），不一致则 `not_sent`，绝不重放。
+   - 批次在以下情况停止，剩余值留给下一次请求：目标身份变化、不可用、`not_sent`、后置条件不满足、跨文档导航、出现新的对话框/选项/菜单，或刚向 combobox 输入（通常需要先选建议项）。
    - 操作题问的是“这些值施加之后的下一步”。批次全部顺利、无冲突/低概率丢弃、目标仍在时，同一周期继续执行该操作（R3 或低于门槛的不执行，交给下一次请求）。
    - 否则按风险级别路由（见下）。
-4. 执行后事件驱动等待：两帧或 50 ms（批内 16 ms；可编辑 combobox 最多 200 ms 等候选项）；检测到跨文档导航则等到新文档再观察。
+4. 执行后事件驱动等待：两帧或 50 ms（批内 16 ms）；向 combobox 输入后等可见选项出现且连续两次不变（最多 800 ms）；检测到跨文档导航则等到新文档再观察。同文档内的 URL 变化（history API）不使判断失效，目标自身的事实检查仍在。
+
+state 还包含宿主记录的事实：`inputs`（每个值 applied/pending 及本页兼容字段数）、`inputSummary`（含本页没有字段的待填用途）、`unsubmittedTextFields`（输入后尚未提交的表单字段；对应提交按钮的目标描述会注明）、`recentActions`。
 
 ## 风险级别与门槛（路由默认值，非准确率）
 
@@ -88,7 +91,7 @@ npm test                                   # 离线：tests/agent.test.mjs 等
 node tests/e2e/task-complex.mjs            # 机械回放：真实循环+扩展+DOM，测试侧脚本化假 Jev（非模型证据）
 node tests/e2e/task-complex.mjs --live     # 真实 Jev，complex-forms，只给 inputs（无声明目标）
 node scripts/jev/task-run.mjs task.json [--approve]    # 任意 runner view
-EVAL_ROOT=<T33>/examples/eval node scripts/jev/task-eval.mjs forma.travel_filter
+EVAL_ROOT=<eval 副本> EVAL_PORT_BASE=<端口基数> node scripts/jev/task-eval.mjs forma.travel_filter   # 使用 T33 评测站的私有副本
 node scripts/jev/calibration.mjs [--sha=<prefix>]      # 从 trace 汇总门槛校准
 ```
 
