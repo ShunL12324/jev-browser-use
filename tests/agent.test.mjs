@@ -8,7 +8,7 @@ const origin = 'http://127.0.0.1:17441'
 let n = 0
 const el = (name, extra = {}) => ({ ref: `e${++n}`, role: 'textbox', name, tag: 'input', inputType: 'text', value: '', checked: null, selected: null, expanded: null, hasPopup: null, disabled: false, readonly: false, modalBlocked: false, dialog: null, context: [], href: null, editable: true, password: false, submit: false, formMethod: 'get', payment: false, inView: true, guard: 'g', ...extra })
 const button = (name, extra = {}) => el(name, { role: 'button', tag: 'button', inputType: null, editable: false, value: null, ...extra })
-const page = (elements, extra = {}) => ({ documentId: 'd1', url: origin + '/', title: 'T', text: '', scroll: { y: 0, height: 900, viewport: 900 }, elements, omitted: 0, marker: 'm', ...extra })
+const page = (elements, extra = {}) => ({ agentProtocol: 2, documentId: 'd1', url: origin + '/', title: 'T', text: '', scroll: { y: 0, height: 900, viewport: 900 }, elements, omitted: 0, marker: 'm', ...extra })
 const task = (extra = {}) => ({ goal: 'g', startUrl: origin + '/', allowedOrigins: [origin], inputs: {}, irreversible: 'confirm', llm: 'handoff', budgets: { maxSteps: 20, maxJevRequests: 6, timeoutMs: 10000 }, ...extra })
 const choice = (q, pick, p = 1) => ({ type: 'choice', choice: pick, probabilities: Object.fromEntries(Object.keys(q.criteria).map(k => [k, k === pick ? p : (1 - p) / Math.max(1, Object.keys(q.criteria).length - 1)])) })
 
@@ -361,4 +361,15 @@ test('a value shown on a page of the task can be typed on another page', async (
   let asks = 0
   await run(task({ goal: 'Enable beta features with the activation code from the help page' }), f, async p => { asks++; return answer({ op: () => asks === 1 ? ['TYPE_TEXT', code.ref] : ['DONE'], text: 'TW-4448-B (shown on page "Help")' })(p) }, async () => { throw Error('no handoff expected') })
   assert.deepEqual(f.s.executed.map(e => e.text), ['TW-4448-B'])
+})
+test('an extension without the current agent protocol stops the task with EXTENSION_OUTDATED; unexpected errors keep their message', async () => {
+  n = 0
+  const f = fake([button('Go')]), call = f.call
+  f.call = async (name, args) => { const r = await call(name, args); return args.action === 'agent_observe' ? { ok: true, execution: 'not_sent', code: 'PAGE_CHANGED' } : r }
+  let r = await run(task(), f, async () => { throw Error('no Jev call expected') })
+  assert.equal(r.result.code, 'EXTENSION_OUTDATED'); assert.match(r.result.message, /Reload the extension/)
+  const g = fake([button('Go')]), gcall = g.call
+  g.call = async (name, args) => { const x = await gcall(name, args); return args.action === 'agent_observe' ? { ...x, text: undefined } : x }
+  r = await run(task(), g, async () => ({}))
+  assert.match(r.result.message, /TypeError/); assert.ok(r.events.some(e => e.event === 'internal_error' && e.stack))
 })

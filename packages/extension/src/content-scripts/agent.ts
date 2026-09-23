@@ -9,6 +9,7 @@ import { shadowOf } from './shadow'
 import { actSetFiles } from './actions'
 import { setNativeValue, dispatchInput, dispatchChange } from './events'
 import { setConfirmPolicy, takeDenied, recentDialogs } from './guard'
+import { AGENT_PROTOCOL, BUILD_ID } from '../shared/agent-protocol'
 
 type Req = { action: string; [k: string]: unknown }
 const textTypes = new Set(['text', 'search', 'email', 'url', 'tel', 'number', 'date', 'datetime-local', 'month', 'week', 'time', 'password', ''])
@@ -62,7 +63,7 @@ function observe(limit: number) {
   // in page order, which is how forms and lists make sense.
   elements.sort((a, b) => a.top - b.top || a.left - b.left)
   const marker = hash(JSON.stringify([location.href, scrollY, elements.map(e => [e.ref, e.role, e.name, e.value, e.checked, e.expanded, e.disabled])]))
-  return { ok: true, documentId, url: location.href, title: document.title, readyState: document.readyState, text: visibleText(),
+  return { ok: true, agentProtocol: AGENT_PROTOCOL, build: BUILD_ID, documentId, url: location.href, title: document.title, readyState: document.readyState, text: visibleText(),
     dialogs: recentDialogs(),
     scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - near.length, marker }
 }

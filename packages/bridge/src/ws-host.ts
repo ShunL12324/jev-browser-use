@@ -118,7 +118,7 @@ export async function startWsHost(opts: { port: number; onPeer?: (ws: WebSocket,
       switch (frame.kind) {
         case 'hello':
           activeVersion = (frame as BridgeHello).extensionVersion
-          log.info(`extension hello: v${activeVersion}`)
+          log.info(`extension hello: v${activeVersion} agent protocol ${(frame as BridgeHello).agentProtocol ?? 'none (outdated build)'} build ${(frame as BridgeHello).build ?? 'unknown'}`)
           notifyWaiters(true)
           return
         case 'result':

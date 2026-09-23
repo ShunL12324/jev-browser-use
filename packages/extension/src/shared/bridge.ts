@@ -30,6 +30,8 @@ export interface BridgeHello {
   id: string
   client: 'extension'
   extensionVersion: string
+  agentProtocol?: number
+  build?: string
 }
 
 /** Host → extension: invoke a browser tool. */

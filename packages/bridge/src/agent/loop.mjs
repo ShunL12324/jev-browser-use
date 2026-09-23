@@ -6,6 +6,7 @@ import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
 import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
+export const AGENT_PROTOCOL = 2
 const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
 // Enter in a form submits it: judge it as its submit control (or an unnamed
 // POST/submit stand-in when the form has none).
@@ -29,7 +30,12 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
   const observe = async () => {
     for (let attempt = 0; ; attempt++) {
-      try { page = await s1({ action: 'agent_observe', limit: 160 }, 'observeMs'); break } catch (error) {
+      try {
+        page = await s1({ action: 'agent_observe', limit: 160 }, 'observeMs')
+        // An older extension answers agent_* requests with something else.
+        if (page?.agentProtocol !== AGENT_PROTOCOL) throw new RunError('EXTENSION_OUTDATED', `The loaded Chrome extension does not speak browser_task protocol ${AGENT_PROTOCOL} (got ${page?.agentProtocol ?? 'none'}, build ${page?.build ?? 'unknown'}). Reload the extension from the current build.`)
+        break
+      } catch (error) {
         // A navigation can detach the content script; retry the read only.
         if (attempt >= 150 || !['SEND_MESSAGE_FAILED', 'NO_RECEIVER', 'TIMEOUT'].includes(error.code) && !/receiving end|message port|context invalidated/i.test(error.message ?? '')) throw error
         await delay(100, undefined, { signal })
@@ -40,7 +46,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     for (const secret of secrets) { page.text = page.text.split(secret).join('‹secret›'); for (const e of page.elements) if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›') }
     // After secret redaction: remembered values never include secrets.
     for (const v of pageValues(page.text)) { seenValues.delete(v); seenValues.set(v, { text: v, source: page.title }) }
-    emit({ event: 'observation', documentId: page.documentId, url: page.url, elements: page.elements.length, omitted: page.omitted, textChars: page.text.length })
+    emit({ event: 'observation', documentId: page.documentId, build: page.build, url: page.url, elements: page.elements.length, omitted: page.omitted, textChars: page.text.length })
     return page
   }
   const toCaller = async (kind, body) => {
@@ -345,6 +351,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       if (outcome) return outcome
     }
   } catch (error) {
-    return result('error', { code: error.code ?? error.name, message: error instanceof RunError ? error.message : 'browser_task stopped without replay.' })
+    // Unexpected errors keep their message (and the stack in the trace).
+    if (!(error instanceof RunError)) emit({ event: 'internal_error', name: error?.name, message: String(error?.message ?? error), stack: String(error?.stack ?? '').split('\n').slice(0, 8).join('\n') })
+    return result('error', { code: error.code ?? error.name, message: error instanceof RunError ? error.message : `browser_task stopped without replay: ${error?.name ?? 'Error'}: ${error?.message ?? error}` })
   }
 }

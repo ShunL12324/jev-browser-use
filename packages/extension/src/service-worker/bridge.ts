@@ -8,6 +8,7 @@
 //   - last error
 
 import { createLogger } from '../lib/logger'
+import { AGENT_PROTOCOL, BUILD_ID } from '../shared/agent-protocol'
 import { executeTool } from '../lib/tools'
 import { generateId } from '../lib/id'
 import { recordStart, recordResult, previewOf } from '../lib/activity'
@@ -201,7 +202,9 @@ function connect() {
       kind: 'hello',
       id: generateId(),
       client: 'extension',
-      extensionVersion: chrome.runtime.getManifest().version ?? '0.0.0'
+      extensionVersion: chrome.runtime.getManifest().version ?? '0.0.0',
+      agentProtocol: AGENT_PROTOCOL,
+      build: BUILD_ID
     }
     send(hello)
     startKeepalive()

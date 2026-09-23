@@ -4,6 +4,8 @@ import manifest from './manifest.config'
 
 export default defineConfig({
   plugins: [crx({ manifest })],
+  // Identifies this exact build in the bridge hello and agent observations.
+  define: { __BUILD_ID__: JSON.stringify(`${process.env.BUILD_SHA ?? 'local'}-${new Date().toISOString()}`) },
   server: {
     port: 5174,
     strictPort: true,
