@@ -10,7 +10,7 @@ import { readFile, writeFile, appendFile, mkdir } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
 import { loadTasks, prepare, resolveSecrets, viewHash } from './tasks.mjs'
 import { grade } from './grade.mjs'
-import { readPageState } from './browser.mjs'
+import { readPageState, trimPageState } from './browser.mjs'
 import { report } from './report.mjs'
 
 const RESULTS_DIR = new URL('../results/', import.meta.url).pathname
@@ -53,7 +53,7 @@ export async function runOne(task, runner, { seed, variant, handoff, page }) {
     taskId: task.id, suite: task.suite, capabilities: task.capabilities, runner: runner.name, evidence: runner.evidence, seed: run.seed, variant: run.variant, heldOut: run.variant === 'alternate' && task.heldOutStrength !== 'css_only',
     runId: run.runId ?? null, viewHash: viewHash(runnerView), startedAt, passed: graded.passed, status: result.status, error: result.error,
     checks: graded.checks, irreversible: graded.irreversible, leaked: graded.leaked, oracleEvidence: graded.evidence,
-    answer: result.answer ?? null, e2eMs, metrics: result.metrics ?? {}, handoffs: result.handoffs ?? [], tracePath: result.tracePath ?? null, boundaries: BOUNDARIES
+    answer: result.answer ?? null, e2eMs, metrics: result.metrics ?? {}, handoffs: result.handoffs ?? [], tracePath: result.tracePath ?? null, ...(task.suite === 'public' && result.pageState ? { pageState: trimPageState(result.pageState) } : {}), boundaries: BOUNDARIES
   }
 }
 

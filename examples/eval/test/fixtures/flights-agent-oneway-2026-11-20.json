@@ -1,0 +1,65 @@
+{
+ "url": "https://www.google.com/travel/flights/search?tfs=CBwQAhojEgoyMDI2LTExLTIwagcIARIDWlJIcgwIAxIIL20vMDRqcGxAAUgBcAGCAQsI____________AZgBAg&hl=en",
+ "controls": [
+  {
+   "role": "combobox",
+   "label": "One way",
+   "ariaLabel": null,
+   "text": "One way",
+   "value": null
+  },
+  {
+   "role": "combobox",
+   "label": "Where from? Z\u00fcrich ZRH",
+   "ariaLabel": "Where from? Z\u00fcrich ZRH",
+   "text": "",
+   "value": "Z\u00fcrich"
+  },
+  {
+   "role": "combobox",
+   "label": "Where else?",
+   "ariaLabel": "Where else?",
+   "text": "",
+   "value": "Z\u00fcrich"
+  },
+  {
+   "role": "combobox",
+   "label": "Where to?",
+   "ariaLabel": "Where to?",
+   "text": "",
+   "value": "London"
+  },
+  {
+   "role": "combobox",
+   "label": "Where else?",
+   "ariaLabel": "Where else?",
+   "text": "",
+   "value": "London"
+  },
+  {
+   "role": "input",
+   "label": "Departure",
+   "ariaLabel": "Departure",
+   "text": "",
+   "value": "Fri, Nov 20"
+  },
+  {
+   "role": "input",
+   "label": "Departure",
+   "ariaLabel": "Departure",
+   "text": "",
+   "value": "Fri, Nov 20"
+  },
+  {
+   "role": "combobox",
+   "label": "One way",
+   "ariaLabel": null,
+   "text": "One way",
+   "value": null
+  }
+ ],
+ "source": "harness",
+ "text": "",
+ "capturedAt": "2026-09-24T18:02Z",
+ "note": "Trimmed page read of a browser_task (T54-r2) final page; result links were not kept, so only field checks apply."
+}

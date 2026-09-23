@@ -4,7 +4,7 @@
 // answers come from ctx.handoff (scripted/deny); open-ended kinds are declined,
 // so these runs measure the "autonomous" column. Paid when the product calls
 // Jev; the product ledger applies.
-// Written against the design contract; untested until P1a ships browser_task.
+// Used for the T54 acceptance runs against the P1a browser_task.
 import { cp, readdir, readFile, writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -13,6 +13,9 @@ import { createHash } from 'node:crypto'
 import { chromium } from 'playwright'
 import { CHROMIUM, readPageState, proxyArgs } from '../browser.mjs'
 
+// A declined open-ended handoff cancels the task; the cancel response carries
+// the terminal metrics and trace, which must survive into the result.
+export const declinedResult = (cancelled, pending, kind) => ({ ...pending, ...cancelled, status: 'blocked', declinedHandoff: kind })
 const freePort = () => new Promise(resolve => { const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)) }) })
 
 export function createRunner({ bridge } = {}) {
@@ -47,7 +50,7 @@ export function createRunner({ bridge } = {}) {
           if (result.status === 'running') { await new Promise(r => setTimeout(r, 500)); result = await call({ action: 'status', taskId: result.taskId }); continue }
           const h = result.handoff, at = Date.now(), answer = await ctx.handoff(h)
           handoffs.push({ kind: h.kind, at, approve: answer.approve === true, declined: !!answer.declined, waitMs: Date.now() - at })
-          if (answer.declined) { await call({ action: 'cancel', taskId: result.taskId }); result = { ...result, status: 'blocked', declinedHandoff: h.kind }; break }
+          if (answer.declined) { result = declinedResult(await call({ action: 'cancel', taskId: result.taskId }), result, h.kind); break }
           result = await call({ action: 'continue', taskId: result.taskId, handoffId: h.handoffId, answer })
         }
         const page = context.pages().find(p => p.url() === result.finalUrl) ?? context.pages().at(-1)

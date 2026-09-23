@@ -25,3 +25,7 @@ export async function readPageState(page) {
     return { source: 'harness', url: location.href, title: document.title, text: document.body.innerText.slice(0, 20000), controls }
   })
 }
+
+// Compact page read kept in result rows so public-task failures can be
+// diagnosed (field controls only; secrets are not relevant on public sites).
+export const trimPageState = s => s && ({ url: s.url, controls: (s.controls ?? []).filter(c => c.role === 'combobox' || c.role === 'input' || /^(Where|Departure|Return)/.test(c.label ?? '')).slice(0, 40) })

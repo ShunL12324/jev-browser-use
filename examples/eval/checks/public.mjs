@@ -23,6 +23,9 @@ export function googleFlightsOneWay({ task, pageState }) {
   if (!pageState) return { evidence: 'none', checks: [c('page_state_available', false, 'Google Flights needs a page read')] }
   const url = new URL(pageState.url), e = task.expect
   const values = Object.fromEntries((pageState.controls ?? []).map(x => [String(x.label ?? '').trim(), x.value]))
+  // A field may be labelled by its name alone ('Where from?') or with its
+  // current value appended ('Where from? Zürich ZRH'); all such controls count.
+  const field = name => (pageState.controls ?? []).filter(x => [x.label, x.ariaLabel].some(l => typeof l === 'string' && (l.trim() === name || l.trim().startsWith(name + ' ')))).map(x => x.value).filter(v => typeof v === 'string')
   let dateInUrl = false
   try { const tfs = url.searchParams.get('tfs') ?? ''; dateInUrl = Buffer.from(tfs.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('latin1').includes(e.iso) } catch { dateInUrl = false }
   // Result rows: jev-ultrafast reads 'Select flight' labels that carry the
@@ -35,9 +38,9 @@ export function googleFlightsOneWay({ task, pageState }) {
     checks: [
       c('search_page', url.hostname === 'www.google.com' && url.pathname === '/travel/flights/search', url.pathname),
       c('one_way', oneWay),
-      c('origin', /z(ü|u)rich/i.test(values['Where from?'] ?? ''), values['Where from?']),
-      c('destination', /london/i.test(values['Where to?'] ?? ''), values['Where to?']),
-      c('date', values['Departure'] === e.short, values['Departure']),
+      c('origin', field('Where from?').some(v => /z(ü|u)rich/i.test(v)), field('Where from?')),
+      c('destination', field('Where to?').some(v => /london/i.test(v)), field('Where to?')),
+      c('date', field('Departure').some(v => v === e.short), field('Departure')),
       c('year', dateInUrl || (pageState.text ?? '').includes(`departing ${e.iso}`)),
       c('results', flights.length > 0 && flights.every(f => f.includes(e.long)), flights.length)
     ]
