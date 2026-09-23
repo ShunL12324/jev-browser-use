@@ -1,0 +1,434 @@
+{
+ "source": "harness",
+ "url": "https://www.google.com/travel/flights/search?tfs=CBwQAhooEgoyMDI2LTExLTIxagwIAxIIL20vMDg5NjZyDAgDEggvbS8wNGpwbEABSAFwAYIBCwj___________8BmAEC&hl=en",
+ "title": "Zürich to London | Google Flights",
+ "text": "Skip to main content\nAccessibility feedback\nExplore\nFlights\nHotels\nVacation rentals\nChange appearance\nSign in\nLoading results\nFlight search\nOne way\n1\nEconomy\nZürich\nLondon\nFilters\nAll filters\nStops\nAirlines\nBags\nPrice\nTimes\nEmissions\nConnecting airports\nDuration\nSearch results\n16 results returned.\nTravel update\nAir traffic disruptions may affect flights.\nBest\nCheapest\nfrom $43\nTop options\nRanked based on price and conveniencePrices include required taxes + fees for 1 adult. Optional charges and bag fees may apply. Passenger assistance info.\nSorted by top flights\n10:25 AM\n – \n11:15 AM\neasyJet\n1 hr 50 min\nZRH–LTN\nNonstop\n86 kg CO2e\nAvg emissions\n$43\n3:40 PM\n – \n4:25 PM\nBritish Airways\n1 hr 45 min\nZRH–LHR\nNonstop\n85 kg CO2e\nAvg emissions\n$88\n4:40 PM\n – \n5:25 PM\nBritish Airways\n1 hr 45 min\nZRH–LHR\nNonstop\n73 kg CO2e\n-11% emissions\n$88\nTrains to considerTo arrive closer to your destination\n7:34 AM – 2:30 PM\nZürich HB – St Pancras International\n7 hr 56 min\n2 stops\nSee more train options\nPrice insights\nThe cheapest time to book is usually now, until Sep 28\nPrices are currently typical\nView price history\nTrack prices\nTrack prices from Zürich to London departing 2026-11-21\nNov 21\nTrack prices from Zürich to London - Any dates\nAny dates\nDate grid\nPrice graph\nOther flights\n9:30 AM\n – \n10:15 AM\neasyJet\n1 hr 45 min\nZRH–LGW\nNonstop\n79 kg CO2e\nAvg emissions\n$54\n6:40 AM\n – \n7:35 AM\nBritish Airways\n1 hr 55 min\nZRH–LHR\nNonstop\n82 kg CO2e\nAvg emissions\n$88\n10:15 AM\n – \n11:10 AM\nBritish Airways\n1 hr 55 min\nZRH–LHR\nNonstop\n73 kg CO2e\n-11% emissions\n$88\n1:35 PM\n – \n2:30 PM\nBritish Airways\n1 hr 55 min\nZRH–LHR\nNonstop\n73 kg CO2e\n-11% emissions\n$88\n7:10 PM\n – \n7:55 PM\nBritish Airways\n1 hr 45 min\nZRH–LHR\nNonstop\n97 kg CO2e\n+18% emissions\n$88\n7:05 AM\n – \n7:50 AM\nSWISS\n1 hr 45 min\nZRH–LGW\nNonstop\n92 kg CO2e\n+12% emissions\n$98\n7:05 AM\n – \n8:05 AM\nSWISS\n2 hr\nZRH–LHR\nNonstop\n71 kg CO2e\n-13% emissions\n$98\n10:15 AM\n – \n11:15 AM\nSWISS\n2 hr\nZRH–LHR\nNonstop\n73 kg CO2e\n-11% emissions\n$98\n12:00 PM\n – \n1:00 PM\nSWISS\n2 hr\nZRH–LHR\nNonstop\n71 kg CO2e\n-13% emissions\n$98\n3:30 PM\n – \n4:20 PM\nSWISS\n1 hr 50 min\nZRH–LHR\nNonstop\n73 kg CO2e\n-11% emissions\n$98\n5:00 PM\n – \n5:50 PM\nSWISS\n1 hr 50 min\nZRH–LHR\nNonstop\n71 kg CO2e\n-13% emissions\n$98\n8:55 PM\n – \n9:40 PM\nSWISS\n1 hr 45 min\nZRH–LHR\nNonstop\n73 kg CO2e\n-11% emissions\n$98\n11:00 AM\n – \n11:40 AM\nSWISSOperated by Helvetic\n1 hr 40 min\nZRH–LCY\nNonstop\n90 kg CO2e\n+10% emissions\n$138\nView more flights\nLanguage​English (United States)\nLocation​United States\nCurrencyUSD\nAbout\nPrivacy\nTerms\nJoin user studies\nFeedback\nHelp Center\n\nDisplayed currencies may differ from the currencies used to purchase flights. Learn more\n\nPage loaded.\nLoading prices.",
+ "controls": [
+  {
+   "role": "combobox",
+   "label": "One way",
+   "ariaLabel": null,
+   "text": "One way",
+   "value": null
+  },
+  {
+   "role": "combobox",
+   "label": "Economy",
+   "ariaLabel": null,
+   "text": "Economy",
+   "value": null
+  },
+  {
+   "role": "combobox",
+   "label": "Where from?",
+   "ariaLabel": "Where from?",
+   "text": "",
+   "value": "Zürich"
+  },
+  {
+   "role": "combobox",
+   "label": "Where else?",
+   "ariaLabel": "Where else?",
+   "text": "",
+   "value": "Zürich"
+  },
+  {
+   "role": "combobox",
+   "label": "Where to?",
+   "ariaLabel": "Where to?",
+   "text": "",
+   "value": "London"
+  },
+  {
+   "role": "combobox",
+   "label": "Where else?",
+   "ariaLabel": "Where else?",
+   "text": "",
+   "value": "London"
+  },
+  {
+   "role": "input",
+   "label": "Departure",
+   "ariaLabel": "Departure",
+   "text": "",
+   "value": "Sat, Nov 21"
+  },
+  {
+   "role": "input",
+   "label": "Return",
+   "ariaLabel": "Return",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "input",
+   "label": "Departure",
+   "ariaLabel": "Departure",
+   "text": "",
+   "value": "Sat, Nov 21"
+  },
+  {
+   "role": "input",
+   "label": "Return",
+   "ariaLabel": "Return",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "combobox",
+   "label": "One way",
+   "ariaLabel": null,
+   "text": "One way",
+   "value": null
+  },
+  {
+   "role": "link",
+   "label": "From 43 US dollars.This price does not include overhead bin access. Nonstop flight with easyJet. Leaves Zurich Airport at 10:25 AM on Saturday, November 21 and arrives at London Luton Airport at 11:15 AM on Saturday, November 21. Total duration 1 hr 50 min.   Select flight",
+   "ariaLabel": "From 43 US dollars.This price does not include overhead bin access. Nonstop flight with easyJet. Leaves Zurich Airport at 10:25 AM on Saturday, November 21 and arrives at London Luton Airport at 11:15 AM on Saturday, November 21. Total duration 1 hr 50 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 10:25 AM on Saturday, November 21 and arrives at London Luton Airport at 11:15 AM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 10:25 AM on Saturday, November 21 and arrives at London Luton Airport at 11:15 AM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 3:40 PM on Saturday, November 21 and arrives at Heathrow Airport at 4:25 PM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "ariaLabel": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 3:40 PM on Saturday, November 21 and arrives at Heathrow Airport at 4:25 PM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 3:40 PM on Saturday, November 21 and arrives at Heathrow Airport at 4:25 PM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 3:40 PM on Saturday, November 21 and arrives at Heathrow Airport at 4:25 PM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 4:40 PM on Saturday, November 21 and arrives at Heathrow Airport at 5:25 PM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "ariaLabel": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 4:40 PM on Saturday, November 21 and arrives at Heathrow Airport at 5:25 PM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 4:40 PM on Saturday, November 21 and arrives at Heathrow Airport at 5:25 PM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 4:40 PM on Saturday, November 21 and arrives at Heathrow Airport at 5:25 PM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 54 US dollars.This price does not include overhead bin access. Nonstop flight with easyJet. Leaves Zurich Airport at 9:30 AM on Saturday, November 21 and arrives at London Gatwick Airport at 10:15 AM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "ariaLabel": "From 54 US dollars.This price does not include overhead bin access. Nonstop flight with easyJet. Leaves Zurich Airport at 9:30 AM on Saturday, November 21 and arrives at London Gatwick Airport at 10:15 AM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 9:30 AM on Saturday, November 21 and arrives at London Gatwick Airport at 10:15 AM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 9:30 AM on Saturday, November 21 and arrives at London Gatwick Airport at 10:15 AM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 6:40 AM on Saturday, November 21 and arrives at Heathrow Airport at 7:35 AM on Saturday, November 21. Total duration 1 hr 55 min.   Select flight",
+   "ariaLabel": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 6:40 AM on Saturday, November 21 and arrives at Heathrow Airport at 7:35 AM on Saturday, November 21. Total duration 1 hr 55 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 6:40 AM on Saturday, November 21 and arrives at Heathrow Airport at 7:35 AM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 6:40 AM on Saturday, November 21 and arrives at Heathrow Airport at 7:35 AM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 10:15 AM on Saturday, November 21 and arrives at Heathrow Airport at 11:10 AM on Saturday, November 21. Total duration 1 hr 55 min.   Select flight",
+   "ariaLabel": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 10:15 AM on Saturday, November 21 and arrives at Heathrow Airport at 11:10 AM on Saturday, November 21. Total duration 1 hr 55 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 10:15 AM on Saturday, November 21 and arrives at Heathrow Airport at 11:10 AM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 10:15 AM on Saturday, November 21 and arrives at Heathrow Airport at 11:10 AM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 1:35 PM on Saturday, November 21 and arrives at Heathrow Airport at 2:30 PM on Saturday, November 21. Total duration 1 hr 55 min.   Select flight",
+   "ariaLabel": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 1:35 PM on Saturday, November 21 and arrives at Heathrow Airport at 2:30 PM on Saturday, November 21. Total duration 1 hr 55 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 1:35 PM on Saturday, November 21 and arrives at Heathrow Airport at 2:30 PM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 1:35 PM on Saturday, November 21 and arrives at Heathrow Airport at 2:30 PM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 7:10 PM on Saturday, November 21 and arrives at Heathrow Airport at 7:55 PM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "ariaLabel": "From 88 US dollars. Nonstop flight with British Airways. Leaves Zurich Airport at 7:10 PM on Saturday, November 21 and arrives at Heathrow Airport at 7:55 PM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 7:10 PM on Saturday, November 21 and arrives at Heathrow Airport at 7:55 PM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 7:10 PM on Saturday, November 21 and arrives at Heathrow Airport at 7:55 PM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 7:05 AM on Saturday, November 21 and arrives at London Gatwick Airport at 7:50 AM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "ariaLabel": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 7:05 AM on Saturday, November 21 and arrives at London Gatwick Airport at 7:50 AM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 7:05 AM on Saturday, November 21 and arrives at London Gatwick Airport at 7:50 AM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 7:05 AM on Saturday, November 21 and arrives at London Gatwick Airport at 7:50 AM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 7:05 AM on Saturday, November 21 and arrives at Heathrow Airport at 8:05 AM on Saturday, November 21. Total duration 2 hr.   Select flight",
+   "ariaLabel": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 7:05 AM on Saturday, November 21 and arrives at Heathrow Airport at 8:05 AM on Saturday, November 21. Total duration 2 hr.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 7:05 AM on Saturday, November 21 and arrives at Heathrow Airport at 8:05 AM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 7:05 AM on Saturday, November 21 and arrives at Heathrow Airport at 8:05 AM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 10:15 AM on Saturday, November 21 and arrives at Heathrow Airport at 11:15 AM on Saturday, November 21. Total duration 2 hr.   Select flight",
+   "ariaLabel": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 10:15 AM on Saturday, November 21 and arrives at Heathrow Airport at 11:15 AM on Saturday, November 21. Total duration 2 hr.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 10:15 AM on Saturday, November 21 and arrives at Heathrow Airport at 11:15 AM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 10:15 AM on Saturday, November 21 and arrives at Heathrow Airport at 11:15 AM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 12:00 PM on Saturday, November 21 and arrives at Heathrow Airport at 1:00 PM on Saturday, November 21. Total duration 2 hr.   Select flight",
+   "ariaLabel": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 12:00 PM on Saturday, November 21 and arrives at Heathrow Airport at 1:00 PM on Saturday, November 21. Total duration 2 hr.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 12:00 PM on Saturday, November 21 and arrives at Heathrow Airport at 1:00 PM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 12:00 PM on Saturday, November 21 and arrives at Heathrow Airport at 1:00 PM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 3:30 PM on Saturday, November 21 and arrives at Heathrow Airport at 4:20 PM on Saturday, November 21. Total duration 1 hr 50 min.   Select flight",
+   "ariaLabel": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 3:30 PM on Saturday, November 21 and arrives at Heathrow Airport at 4:20 PM on Saturday, November 21. Total duration 1 hr 50 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 3:30 PM on Saturday, November 21 and arrives at Heathrow Airport at 4:20 PM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 3:30 PM on Saturday, November 21 and arrives at Heathrow Airport at 4:20 PM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 5:00 PM on Saturday, November 21 and arrives at Heathrow Airport at 5:50 PM on Saturday, November 21. Total duration 1 hr 50 min.   Select flight",
+   "ariaLabel": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 5:00 PM on Saturday, November 21 and arrives at Heathrow Airport at 5:50 PM on Saturday, November 21. Total duration 1 hr 50 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 5:00 PM on Saturday, November 21 and arrives at Heathrow Airport at 5:50 PM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 5:00 PM on Saturday, November 21 and arrives at Heathrow Airport at 5:50 PM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 8:55 PM on Saturday, November 21 and arrives at Heathrow Airport at 9:40 PM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "ariaLabel": "From 98 US dollars. Nonstop flight with SWISS. Leaves Zurich Airport at 8:55 PM on Saturday, November 21 and arrives at Heathrow Airport at 9:40 PM on Saturday, November 21. Total duration 1 hr 45 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 8:55 PM on Saturday, November 21 and arrives at Heathrow Airport at 9:40 PM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 8:55 PM on Saturday, November 21 and arrives at Heathrow Airport at 9:40 PM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 138 US dollars. Nonstop flight with SWISS. Operated by Helvetic. Leaves Zurich Airport at 11:00 AM on Saturday, November 21 and arrives at London City Airport at 11:40 AM on Saturday, November 21. Total duration 1 hr 40 min.   Select flight",
+   "ariaLabel": "From 138 US dollars. Nonstop flight with SWISS. Operated by Helvetic. Leaves Zurich Airport at 11:00 AM on Saturday, November 21 and arrives at London City Airport at 11:40 AM on Saturday, November 21. Total duration 1 hr 40 min.   Select flight",
+   "text": "",
+   "value": null
+  },
+  {
+   "role": "button",
+   "label": "Select flight",
+   "ariaLabel": "Select flight",
+   "text": "Select flight",
+   "value": ""
+  },
+  {
+   "role": "button",
+   "label": "Flight details. Leaves Zurich Airport at 11:00 AM on Saturday, November 21 and arrives at London City Airport at 11:40 AM on Saturday, November 21.",
+   "ariaLabel": "Flight details. Leaves Zurich Airport at 11:00 AM on Saturday, November 21 and arrives at London City Airport at 11:40 AM on Saturday, November 21.",
+   "text": "",
+   "value": ""
+  },
+  {
+   "role": "link",
+   "label": "From 43 US dollars.This price does not include overhead bin access. Nonstop flight with easyJet. Leaves Zurich Airport at 10:25 AM on Saturday, November 21 and arrives at London Luton Airport at 11:15 AM on Saturday, November 21. Total duration 1 hr 50 min.   Select flight",
+   "ariaLabel": "From 43 US dollars.This price does not include overhead bin access. Nonstop flight with easyJet. Leaves Zurich Airport at 10:25 AM on Saturday, November 21 and arrives at London Luton Airport at 11:15 AM on Saturday, November 21. Total duration 1 hr 50 min.   Select flight",
+   "text": "",
+   "value": null
+  }
+ ],
+ "capturedAt": "2026-09-23T17:56:50.461Z",
+ "flow": {
+  "trip": "One way",
+  "date": "Sat, Nov 21",
+  "ret": null
+ }
+}

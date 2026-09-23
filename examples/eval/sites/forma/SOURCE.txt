@@ -1,0 +1,2 @@
+Vendored unchanged from https://github.com/browser-use/jev-ultrafast @ 1231850 (jev_ultrafast/static/fixture.html, MIT, see LICENSE-jev-ultrafast). The server appends a passive observer script at serve time; the file itself is not modified. sha256:
+e48e7d7b6225b215060692e0a28c3d0b59e465e4b94c1bc510d5f37ff0b8bfbe  examples/eval/sites/forma/fixture.html
