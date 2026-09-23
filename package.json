@@ -17,6 +17,7 @@
     "lab": "node scripts/jev/lab.mjs",
     "browser:isolated": "node scripts/jev/isolated-browser.mjs",
     "s1:fixtures": "node scripts/jev/s1-fixtures.mjs",
-    "test:s1:browser": "node tests/e2e/jev-s1.mjs"
+    "test:s1:browser": "node tests/e2e/jev-s1.mjs",
+    "test:task:mechanical": "node tests/e2e/task-complex.mjs"
   }
 }
