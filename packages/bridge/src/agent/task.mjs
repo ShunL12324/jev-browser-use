@@ -16,7 +16,7 @@ const input = z.union([z.object({ value: z.string().max(4000), purpose: z.string
 export const startSchema = z.object({
   goal: z.string().min(1).max(4000), startUrl: z.string().url(), allowedOrigins: z.array(z.string().url()).min(1).max(20),
   inputs: z.record(input).default({}), files: z.record(z.object({ fileId: z.string().min(1).max(100), purpose: z.string().min(1).max(300) }).strict()).default({}),
-  irreversible: z.enum(['confirm', 'deny']).default('confirm'), llm: z.enum(['handoff', 'none']).default('handoff'),
+  irreversible: z.enum(['confirm', 'deny', 'none']).default('confirm'), llm: z.enum(['handoff', 'none']).default('handoff'),
   budgets: z.object({ timeoutMs: z.number().int().min(1000).max(1800000).default(300000), maxSteps: z.number().int().min(1).max(300).default(120), maxJevRequests: z.number().int().min(1).max(300).default(80) }).strict().default({})
 }).strict()
 // Host secret manifest: {ref: {value, origins:[...]}}. Plaintext never enters

@@ -9,7 +9,7 @@ export function registerTask(server, { host }) {
   server.registerTool('browser_task', { description, inputSchema: {
     action: z.enum(['start', 'continue', 'status', 'cancel']), taskId: z.string().optional(), handoffId: z.string().optional(), answer: z.record(z.unknown()).optional(),
     goal: z.string().optional(), startUrl: z.string().optional(), allowedOrigins: z.array(z.string()).optional(), inputs: z.record(z.unknown()).optional(), files: z.record(z.unknown()).optional(),
-    irreversible: z.enum(['confirm', 'deny']).optional(), llm: z.enum(['handoff', 'none']).optional(), budgets: z.record(z.unknown()).optional(), waitMs: z.number().int().min(0).max(110000).optional()
+    irreversible: z.enum(['confirm', 'deny', 'none']).optional(), llm: z.enum(['handoff', 'none']).optional(), budgets: z.record(z.unknown()).optional(), waitMs: z.number().int().min(0).max(110000).optional()
   } }, async input => {
     try {
       const { action, waitMs, taskId, handoffId, answer, ...start } = input

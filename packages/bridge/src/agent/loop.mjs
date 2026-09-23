@@ -43,7 +43,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     emit({ event: 'handoff_answer', kind, answer })
     return answer ?? {}
   }
-  const confirm = async (question, reason) => task.irreversible === 'deny' && reason !== 'allow_origin' ? { deny: true } : toCaller('confirm', { question, reason, expects: { approve: 'boolean' } })
+  const confirm = async (question, reason) => task.irreversible !== 'confirm' && reason !== 'allow_origin' ? { deny: true } : toCaller('confirm', { question, reason, expects: { approve: 'boolean' } })
 
   // Executes one operation on the current page, then settles and re-observes.
   const exec = async (op, el, args = {}, valueId, quick = false) => {
