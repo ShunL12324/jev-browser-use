@@ -44,7 +44,7 @@ function observe(limit: number) {
   const elements = near.map(it => {
     const el = findByRef(it.ref)!, f = facts(el), r = el.getBoundingClientRect()
     const input = el instanceof HTMLInputElement ? el : null
-    return { ref: it.ref, role: f.role, name: f.name, tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.value,
+    return { ref: it.ref, role: f.role, name: f.name, tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.role === 'combobox' && !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) ? (el as HTMLElement).innerText?.trim().slice(0, 120) || null : f.value,
       checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert, readonly: f.readonly, required: f.required, valid: f.valid,
       modalBlocked: f.modalBlocked, dialog: f.dialog, context: f.context, href: f.href, options: f.options, files: f.files?.length, editable: editable(el) && !f.readonly,
       password: input?.type === 'password', submit: f.buttonType === 'submit' || input?.type === 'submit' || input?.type === 'image', formMethod: (el as HTMLInputElement).form?.method ?? null,
@@ -151,6 +151,9 @@ function settle(q: Req) {
       }
       setTimeout(poll, 50); return
     }
+    // watch: after a submit, keep listening for a navigation start this long.
+    const watch = Number(q.watch ?? 0)
+    if (watch) { const poll = () => { if (done) return; if (navigating || performance.now() - start >= watch) finish(); else setTimeout(poll, 25) }; setTimeout(poll, 25); return }
     setTimeout(finish, q.op === 'wait' ? 300 : q.quick ? 16 : 50)
     const tick = () => { if (done) return; if (++frames >= 2 && q.op !== 'wait') finish(); else requestAnimationFrame(tick) }
     requestAnimationFrame(tick)

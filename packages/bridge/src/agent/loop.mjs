@@ -3,9 +3,10 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize } from './jev.mjs'
-import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, norm } from './space.mjs'
+import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, norm } from './space.mjs'
 
 const now = () => performance.now()
+const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
 const originOf = url => { try { return new URL(url).origin } catch { return null } }
 // A judgment stays usable for one target while the document, URL and that
 // target's identity (role, name, context, dialog) are unchanged. Unrelated
@@ -18,7 +19,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
   const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
   const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
-  let tabId, page, agentStart, stalls = 0, stallHandoffs = 0
+  let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false
   const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }
   const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, metrics: m, ...extra } }
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
@@ -56,13 +57,18 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     try { res = await s1(request, 'execMs') } catch (error) { emit({ event: 'outcome', execution: 'unknown', code: error.code }); throw new RunError('OUTCOME_UNKNOWN', 'Execution transport failed; the action is not replayed.') }
     if (res.execution === 'not_sent') { m.stale++; emit({ event: 'outcome', execution: 'not_sent', code: res.code }); await observe(); return { sent: false, code: res.code } }
     m.steps++
+    // A link to another document may start navigating after the settle
+    // window (script-driven suggestions, slow networks); so may a form submit.
+    const linkAway = op === 'click' && el?.href && crossDocumentHref(el.href, page.url), submitting = op === 'key' || op === 'click' && el?.submit
     let settled
-    try { settled = await s1({ action: 'agent_settle', op, ref: el?.ref, quick }, 'settleMs') } catch { settled = { navigating: true } }
-    if (res.crossDocument || settled.navigating) {
-      // Wait for the next document instead of deciding on the unloading one.
-      const deadline = now() + 15000
+    try { settled = await s1({ action: 'agent_settle', op, ref: el?.ref, quick, watch: submitting ? 150 : 0 }, 'settleMs') } catch { settled = { navigating: true } }
+    if (res.crossDocument || settled.navigating || linkAway) {
+      // Wait for the next document instead of deciding on the unloading one:
+      // up to 15 s once navigation is seen, up to 3 s when only expected.
+      const deadline = now() + (res.crossDocument || settled.navigating ? 15000 : 3000)
       do { await delay(80, undefined, { signal }); await observe() } while (page.documentId === before.documentId && now() < deadline)
-    } else await observe()
+      navPending = page.documentId === before.documentId
+    } else { await observe(); navPending = false }
     const changed = page.documentId !== before.documentId || page.marker !== before.marker
     const after = page.elements.find(e => e.ref === el?.ref)
     const postcondition = !valueId ? undefined : page.documentId !== before.documentId ? 'unknown'
@@ -208,12 +214,17 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       // over by advancing: route R2+ steps to the caller instead.
       const unresolved = drops.filter(d => d.reason !== 'not_now')
       if (postBatch && (level === 'R3' || (level === 'R1' ? pOp : p) < (GATES[level] ?? 0) || !el && id || level === 'R2' && p < 0.6)) { emit({ event: 'post_batch', skipped: level }); continue }
+      // Never accept a completion claim while an expected navigation has not
+      // produced a new document; look again once instead.
+      if (op === 'DONE' && navPending) { navPending = false; emit({ event: 'route', why: 'navigation_pending', op }); await delay(500, undefined, { signal }); await observe(); continue }
+      // Search/submit-like targets commit a query or form: use the stricter gate.
+      const committing = level === 'R2' && (op === 'PRESS_ENTER' || el?.submit || /\b(search|submit|apply|find)\b/i.test(el?.name ?? ''))
       const gateP = level === 'R1' ? pOp : p
       // Joint (operation × target) probability of the choice and its runner-up.
       const joints = Object.entries(opAnswer.probabilities).flatMap(([o, po]) => { const h = invalid.has(`target_${o}`) ? null : answers[`target_${o}`]; return h ? Object.entries(h.probabilities).map(([t, pt]) => [`${o}:${t}`, po * pt]) : [[o, po]] }).sort((a, b) => b[1] - a[1])
       const mine = joints.find(([k]) => k === (id ? `${op}:${id}` : op))?.[1] ?? 0, rival = joints.find(([k]) => k !== (id ? `${op}:${id}` : op))?.[1] ?? 0
       const thin = level === 'R2' && mine < R2_MARGIN * rival
-      let why = op === 'BLOCKED' ? 'model_blocked' : gateP < (GATES[level] ?? 0) || thin ? `p=${gateP.toFixed(2)}${thin ? ` margin ${(mine / Math.max(rival, 1e-9)).toFixed(2)}` : ''} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress'
+      let why = op === 'BLOCKED' ? 'model_blocked' : gateP < (committing ? SUBMIT_GATE : GATES[level] ?? 0) || thin ? `p=${gateP.toFixed(2)}${thin ? ` margin ${(mine / Math.max(rival, 1e-9)).toFixed(2)}` : ''} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress'
         : unresolved.length && ['R2', 'R3'].includes(level) ? `unresolved inputs: ${unresolved.map(d => d.valueId).join(', ')}` : null
       if (why === 'no_progress' && ++stallHandoffs > 2) return result('blocked', { reason: 'no_progress' })
       // Below a gate, first try the safest informative step the model also

@@ -22,11 +22,15 @@ export async function launchIsolated({ files, headless = true } = {}) {
   }
   const env = { BROWSER_USE_PORT: port, JEV_ENABLE_S1: '1', JEV_ENABLE_COMPLEX_FORMS: '1' }
   for (const k of pass) if (process.env[k]) env[k] = process.env[k]
+  // DEV_PROXY=http://host:port routes this bridge's outbound fetch and this
+  // Chromium through a proxy (per process only); loopback test sites bypass it.
+  const proxy = process.env.DEV_PROXY
+  if (proxy) Object.assign(env, { NODE_USE_ENV_PROXY: '1', HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY: '127.0.0.1,localhost' })
   if (files) { env.JEV_S1_FILES_MANIFEST = join(temp, 'files.json'); await writeFile(env.JEV_S1_FILES_MANIFEST, JSON.stringify(files)) }
   const client = new Client({ name: 'jev-task-dev', version: '0.1.0' })
   const transport = new StdioClientTransport({ command: process.execPath, args: [join(root, 'packages/bridge/dist/index.js')], env, stderr: 'ignore' })
   await client.connect(transport)
-  const context = await chromium.launchPersistentContext(join(temp, 'profile'), { channel: 'chromium', executablePath: process.env.CHROMIUM_EXECUTABLE ?? '/home/shun/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome', headless, viewport: { width: 1280, height: 900 }, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] })
+  const context = await chromium.launchPersistentContext(join(temp, 'profile'), { channel: 'chromium', executablePath: process.env.CHROMIUM_EXECUTABLE ?? '/home/shun/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome', headless, viewport: { width: 1280, height: 900 }, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, ...(proxy ? [`--proxy-server=${proxy}`, '--proxy-bypass-list=127.0.0.1;localhost;<-loopback>'] : [])] })
   await (context.serviceWorkers()[0] ?? context.waitForEvent('serviceworker'))
   const tool = async (name, args, timeout = 120000) => {
     const result = await client.callTool({ name, arguments: args }, undefined, { timeout })

@@ -205,3 +205,37 @@ test('field heads fill several goal-specified fields in one cycle, then the post
   assert.deepEqual(f.s.executed.map(e => [e.op, e.text ?? e.value ?? e.checked ?? null]), [['type', 'Lisbon'], ['select', 'design'], ['check', true], ['click', null]])
   assert.equal(asks, 2); assert.equal(result.status, 'done')
 })
+test('a link whose navigation starts late is awaited; DONE is not judged on the old document', async () => {
+  n = 0
+  const link = button('Result article', { role: 'link', href: origin + '/wiki/Target' }), f = fake([link])
+  let observes = 0, asks = 0
+  const call = f.call
+  f.call = async (name, args) => {
+    // After the click, the old document is observed twice before the new one appears.
+    if (args.action === 'agent_observe' && f.s.executed.length && ++observes === 3) { f.s.documentId = 'd2'; f.s.url = origin + '/wiki/Target'; f.s.elements = [] }
+    return call(name, args)
+  }
+  const docs = []
+  const { result } = await run(task(), f, async p => { asks++; docs.push(p.state.page.url); return answer({ op: () => asks === 1 ? ['CLICK', link.ref] : ['DONE'] })(p) })
+  assert.equal(result.status, 'done'); assert.equal(result.finalUrl, origin + '/wiki/Target')
+  assert.deepEqual(docs, [origin + '/', origin + '/wiki/Target'])
+})
+test('an expected navigation that never happens blocks one DONE and re-observes', async () => {
+  n = 0
+  const link = button('Result article', { role: 'link', href: origin + '/wiki/Target' }), f = fake([link])
+  let asks = 0
+  const { events } = await run(task(), f, async p => { asks++; return answer({ op: () => asks === 1 ? ['CLICK', link.ref] : ['DONE'] })(p) })
+  assert.ok(events.some(e => e.event === 'route' && e.why === 'navigation_pending'))
+  assert.equal(asks, 3)
+})
+test('search/submit-like R2 targets need 0.6; other R2 targets 0.5 with margin', async () => {
+  n = 0
+  const search = button('Search'), other = button('Open panel'), help = button('Help')
+  for (const [target, expectHandoff] of [[search, true], [other, false]]) {
+    const f = fake([search, other, help]), kinds = []
+    let asks = 0
+    const ask = jev(({ questions }) => ({ operation: choice(questions.operation, 'CLICK'), target_CLICK: { type: 'choice', choice: target.ref, probabilities: spread(Object.keys(questions.target_CLICK.criteria), { [target.ref]: 0.55 }) }, ...(asks++ ? { operation: choice(questions.operation, 'DONE') } : {}) }))
+    await run(task(), f, ask, async h => { kinds.push(h.kind); return {} })
+    assert.equal(kinds.includes('choose'), expectHandoff, target.name)
+  }
+})

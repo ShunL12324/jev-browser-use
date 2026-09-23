@@ -104,3 +104,4 @@ export function tier(op, e, page) {
 // over the runner-up operation/target pair.
 export const GATES = { R0: 0, R1: 0.4, R2: 0.5 }
 export const R2_MARGIN = 1.3
+export const SUBMIT_GATE = 0.6
