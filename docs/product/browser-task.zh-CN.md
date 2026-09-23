@@ -136,3 +136,17 @@ node scripts/jev/calibration.mjs [--sha=<prefix>]      # 从 trace 汇总门槛�
 - 请求字节上限为 120 KB（设计稿 48 KB）：绑定题较多的表单页约 30–37 KB、约 9k 输入 tokens，未超过 Jev 单请求限制；每次请求的字节数和 tokens 都写入 trace 的 `decision` 事件。
 
 r2 复测（开发者自测，经 WSL 本地代理访问公网；此前的连接超时属于环境失败，不是模型判断）：Wikipedia 3/3 到达目标条目（3–4 次请求，agentMs 4.5–19.7 s，时间波动来自页面加载），T33 harness 判分 1/1 通过；Google Flights 3/3 到达结果页，tfs 解码为单程、2026-11-20、ZRH → London（11 次请求，agentMs 9.3–10.0 s，无 handoff）；harness 判分一次的页面读取检查中 one_way/origin/results 未通过而 URL 参数正确，已交给验收方核对检查条件。机械：`tests/e2e/task-confirm.mjs` 通过真实扩展证明确认框拒绝时 0 次提交、批准后 1 次、延迟导航被等待。
+
+### r3 修改（验收报告 t54-r2-report 之后）
+
+- **secret 绑定循环（r2 中 78 次重复输入）**：后置条件改由执行器在活元素上比较（`applied`），不再对已替换为 `‹secret›` 的观察值比较；非秘密值还要求后续观察一致。**熔断**：同一 input（或目标文字字段）两次 unmet 后状态为 `failed_to_apply`，不再提供，永不重复到请求上限。
+- **refs 按文档隔离**：每条历史记录带 documentId；“已填/受保护/失败”只作用于同一文档的 ref（r2 中登录页 ref `e8` 的记录把书页上的“Reserve this title” `e8` 排除了）。
+- **确认策略不经页面 DOM**：MAIN world 的 `confirm()` 覆盖把策略存在闭包里，只接收 ISOLATED world 在 document_start 通过 `MessageChannel` 交出的第一个端口；拒绝报告与对话框文字也只走这个通道。通道不可用时，点击/Enter 类动作以 `CONFIRM_GUARD_UNAVAILABLE` 拒绝执行（fail closed）。页面脚本无法读取或修改策略（`tests/e2e/task-confirm.mjs` 的 hostile 页面：伪造握手与清除属性后仍 0 次提交）。
+- **反馈**：每个动作后新出现的页面文字（验证错误、结果、提示）写入 `recentActions[].newText`；目标被遮挡时不再盲目重试，写入“covered by …”；列表项/行中的控件附带所在条目文字（`item`），例如哪一条预约的“Cancel reservation”。确认框批准后的动作在历史中注明“executed after the caller approved …”。
+- **目标文字中的结构化值**：邮箱、URL、电话号码作为完整短语；电话号码另给出纯数字与去掉国家码的形式（表单常拒绝分隔符）。目标文字填写的字段不再受保护，出现验证错误时可被改正；供值字段仍受保护。
+- **自动完成**：向 combobox 输入后，若恰有一个可见选项与输入值相同（规范化后），同一填写中直接选择它；否则停止批次交给下一次决策。
+- **风险级别**：关闭/不再提示类按钮（close、no thanks、not now、skip…）与视图翻页（next/previous month/year/slide）为 R0。
+- **导航检测**：表单提交是否会跨文档导航由提交事件是否被阻止精确判断，替代 r2 的 150 ms 监听（complex-forms 每次 Continue 不再额外等待）；批次内相邻两次填写之间不再单独 settle（下一次填写前会重新观察并检查目标）。
+- **请求体**：绑定题候选改为短标签（名称/上下文/当前值），完整规则只放在操作题与 CLICK 目标题。
+
+仍然保留的限制（已校准说明）：日期选择器中的具体日期按钮属于 R2，模型不确定时交给调用方；键盘/滑块类控件（音量滑块）、新 tab 采纳属于 P2/P4；Jev 单次请求延迟在 0.4–1.0 s 间波动，是 agentMs 的主要来源。
