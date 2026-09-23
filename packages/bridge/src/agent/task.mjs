@@ -86,6 +86,9 @@ export async function startTask(raw, { host, ask = askJev, ledgerPath = process.
         // A TCP connect timeout proves the request never left this host, so one
         // new attempt (separately reserved in the ledger) cannot double-send.
         if (attempt < 2 && e.diagnostic?.causeCode === 'UND_ERR_CONNECT_TIMEOUT') continue
+        // Explicit overload responses (429/503/529) get one delayed attempt, as
+        // an SDK would; each attempt is separately ledgered, never a loop.
+        if (attempt === 0 && [429, 503, 529].includes(e.diagnostic?.httpStatus)) { await new Promise(r => setTimeout(r, 1000)); continue }
         throw e
       }
     }
