@@ -9,6 +9,7 @@ Hard rules
 - Report every run, including failures. Do not retry a run to get a better result; one run = one attempt.
 
 Setup (done by master before launch)
+- The bridge starts via `start-bridge.sh`, which reads `TYPESAFE_API_KEY` from `JEV_KEY_FILE` (default `/tmp/jev-tester/typesafe.env`, one line `TYPESAFE_API_KEY=...`, mode 0600) when the environment lacks it. Never commit or print that file.
 - Eval sites run from the main checkout (`EVAL_ROOT`, default `/home/shun/projects/jev-browser-use/examples/eval`), reachable from Windows via 127.0.0.1.
 - For each seed, host manifests: `node $EVAL_ROOT/harness/run.mjs manifests /tmp/jev-tester --seed <seed>`, then copy `secrets-<seed>.json` → `/tmp/jev-tester/secrets.json` and `files-<seed>.json` → `/tmp/jev-tester/files.json` (the bridge reads them at every task start).
 

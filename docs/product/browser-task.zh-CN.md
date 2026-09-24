@@ -169,6 +169,6 @@ r3 开发期复测（T33 评测站私有副本，standard 变体，atlas/birch�
 
 ### 真实端到端（用户 Windows Chrome）
 
-`tests/tester/` 是 tester 成员的工作目录：`.mcp.json` 以相对路径启动 bridge（端口 17329，Node 走本地代理，本地地址直连；秘密与文件清单在 `/tmp/jev-tester/`，每个 seed 由 harness 的 `manifests` 命令生成）；`CLAUDE.md` 是 tester 的操作规程（只经本 MCP 操作；自主列用 `llm:"none"`，辅助列用 `llm:"handoff"`；公开站点只读；用 harness 的 `start`/`finish` 取得 runner view 与独立判分）；`page-state.js` 是公开任务判分所需的只读页面采集表达式，与 harness 自身的页面读取格式相同。
+`tests/tester/` 是 tester 成员的工作目录：`.mcp.json` 以相对路径启动 bridge（端口 17329，Node 走本地代理，本地地址直连；秘密与文件清单在 `/tmp/jev-tester/`，每个 seed 由 harness 的 `manifests` 命令生成）；bridge 经 `start-bridge.sh` 启动：Claude Code 进程环境中没有 `TYPESAFE_API_KEY` 时，从 `JEV_KEY_FILE`（默认 `/tmp/jev-tester/typesafe.env`，单行 `TYPESAFE_API_KEY=...`，权限 0600）只读取这一变量，不 source、不打印；`CLAUDE.md` 是 tester 的操作规程（只经本 MCP 操作；自主列用 `llm:"none"`，辅助列用 `llm:"handoff"`；公开站点只读；用 harness 的 `start`/`finish` 取得 runner view 与独立判分）；`page-state.js` 是公开任务判分所需的只读页面采集表达式，与 harness 自身的页面读取格式相同。
 
 机械证据（临时 Chromium，假 Jev）：`tests/hub.test.mjs`（两会话互不可见、用户 tab 不被触碰、子 tab 采纳、hub 退出后接管与重新声明）；`tests/e2e/task-tabs.mjs`（真实扩展中 target=_blank 新 tab 被采纳并跟随、第二个 MCP 会话作为 peer 看不到也用不了第一个会话的 tab）。

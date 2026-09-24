@@ -1,8 +1,10 @@
 {
   "mcpServers": {
     "browser-use": {
-      "command": "node",
-      "args": ["../../packages/bridge/dist/index.js"],
+      "command": "sh",
+      "args": [
+        "./start-bridge.sh"
+      ],
       "env": {
         "BROWSER_USE_PORT": "17329",
         "NODE_USE_ENV_PROXY": "1",
@@ -11,7 +13,8 @@
         "NO_PROXY": "127.0.0.1,localhost",
         "JEV_SECRETS_MANIFEST": "/tmp/jev-tester/secrets.json",
         "JEV_S1_FILES_MANIFEST": "/tmp/jev-tester/files.json",
-        "JEV_TASK_TRACE_DIR": "/tmp/jev-tester/traces"
+        "JEV_TASK_TRACE_DIR": "/tmp/jev-tester/traces",
+        "JEV_KEY_FILE": "/tmp/jev-tester/typesafe.env"
       }
     }
   }
