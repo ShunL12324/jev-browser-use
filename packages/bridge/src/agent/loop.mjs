@@ -167,7 +167,19 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     if (['type', 'select', 'check'].includes(op)) pendingInputs = true
     if (op === 'key' || entry.navigated || op === 'click' && submitLike(el)) pendingInputs = false
     stalls = changed || op === 'wait' ? 0 : stalls + 1
+    // A click that changed nothing is a failed target, like a refused one.
+    if (op === 'click' && !changed && el) { const key = `${page.documentId}|${el.ref}`; refused.set(key, (refused.get(key) ?? 0) + 1) }
     return { sent: true, ...entry }
+  }
+  // Date-like text fields outside a form (custom pickers) often keep typed
+  // text uncommitted until Enter; press it once, as a user would. Inside a
+  // form Enter would submit it, so there it is left to the model.
+  const DATE_LIKE = /\b(date|depart\w*|return|arriv\w*|check-?in|check-?out|when|from date|to date)\b/i
+  const commitTyped = async el => {
+    const now2 = page.elements.find(e => e.ref === el.ref)
+    if (!now2 || now2.form || !DATE_LIKE.test(el.name) || page.elements.some(e => e.role === 'option' && e.inView)) return
+    emit({ event: 'auto_commit', ref: el.ref, name: el.name })
+    await exec('key', now2, { key: 'Enter' })
   }
   const OP = { CLICK: 'click', PRESS_ENTER: 'key', SCROLL_DOWN: 'scroll_down', SCROLL_UP: 'scroll_up', WAIT: 'wait', GO_BACK: 'back' }
   // Runs a model- or caller-selected operation after its risk checks.
@@ -184,6 +196,16 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       const key = norm(`${el.name}|${el.context?.join('|')}`)
       let text = textCache.get(key)
       const span = answers?.text_value, spanP = span?.probabilities?.[span.choice]
+      // A validation message on the page ("must be 10 digits") filters the
+      // candidate texts; among those that fit, a clear leader is accepted.
+      if (text === undefined && span?.probabilities && !(span.choice !== 'caller' && spanP >= 0.5)) {
+        const rule = [...history].reverse().find(h => h.newText)?.newText.match(/(\d+)\s*(digits?|characters?|chars?)\b/i)
+        if (rule) {
+          const n = Number(rule[1]), digits = /digit/i.test(rule[2])
+          const fit = Object.entries(span.probabilities).filter(([k]) => k !== 'caller').map(([k, p]) => ({ t: built.spans[Number(k.slice(1)) - 1], p })).filter(c => c.t && (digits ? (c.t.match(/\d/g) ?? []).length === n && !/[^\d]/.test(c.t) : c.t.length === n)).sort((a, b) => b.p - a.p)
+          if (fit[0] && fit[0].p >= 0.3 && (fit[1]?.p ?? 0) < fit[0].p / 2) { text = fit[0].t; emit({ event: 'text_from_goal', text, p: fit[0].p, rule: rule[0] }) }
+        }
+      }
       if (text === undefined && span && span.choice !== 'caller' && spanP >= 0.5) { text = built.spans[Number(span.choice.slice(1)) - 1]; emit({ event: 'text_from_goal', text: task.inputs && Object.values(task.inputs).some(i => i.secret && i.value === text) ? '‹secret›' : text, p: spanP }) }
       if (text === undefined) {
         const answer = await toCaller('text', { question: `Text to type into this field for the goal: ${describe(el)}`, field: { id: el.ref, label: el.name, role: el.role, value: el.value, context: el.context }, expects: { text: 'string' } })
@@ -200,7 +222,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         for (const e of page.elements) if ((refused.get(`${page.documentId}|${e.ref}`) ?? 0) >= 2) e.unreachable = true
         emit({ event: 'outcome', execution: 'not_sent', code: 'TEXT_REJECTED', why }); return
       }
-      await exec('type', el, { text }); return
+      const typedR = await exec('type', el, { text }); if (typedR.sent && !typedR.navigated) await commitTyped(el); return
     }
     if (op === 'SELECT') { await exec('select', el, { value: target.value }); return }
     if (el?.href && !allowed.has(originOf(el.href))) {
@@ -311,6 +333,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
             const same = page.elements.filter(e => e.role === 'option' && !e.disabled && norm(e.name) === norm(c.text))
             if (same.length === 1) { const pick = await exec('click', same[0]); emit({ event: 'autocomplete_pick', valueId: b.valueId, option: same[0].name, sent: pick.sent }) }
           }
+          if (c.op === 'type' && !r.navigated) await commitTyped(el)
           const popup = popups(page).filter(x => !popups(judged).includes(x))
           if (c.op === 'type' && (el.role === 'combobox' || el.hasPopup) && i < bindings.length - 1 && popups(page).some(x => x.startsWith('option:'))) popup.push('combobox_typed')
           if (popup.length) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'popup_opened', popup: popup.slice(0, 3) }); stopped = true; break }

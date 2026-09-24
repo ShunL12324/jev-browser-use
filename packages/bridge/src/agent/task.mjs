@@ -66,8 +66,14 @@ export async function startTask(raw, { host, ask = askJev, ledgerPath = process.
   const id = `t_${randomUUID()}`, tracePath = join(traceDirectory, `${id}.jsonl`)
   const secretValues = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
   const redact = text => secretValues.reduce((t, v) => t.split(v).join('‹secret›'), text)
-  const emit = event => appendFileSync(tracePath, redact(JSON.stringify({ taskId: id, at: new Date().toISOString(), ...event })) + '\n', { mode: 0o600 })
-  if (previousFinalTab !== null && task.keepTabs !== 'all') { const id = previousFinalTab; previousFinalTab = null; await host.invoke('tabs', { action: 'close', tabId: id }).catch(() => {}) }
+  const emit = event => {
+    appendFileSync(tracePath, redact(JSON.stringify({ taskId: id, at: new Date().toISOString(), ...event })) + '\n', { mode: 0o600 })
+    if (event.event === 'tab' && previous !== null && event.tabId !== previous) host.invoke('tabs', { action: 'close', tabId: previous }).catch(() => {})
+  }
+  // The previous task's final tab is closed only after this task's tab
+  // exists, so the agent window never becomes empty (and never closes).
+  const previous = task.keepTabs !== 'all' ? previousFinalTab : null
+  if (previous !== null) previousFinalTab = null
   const controller = new AbortController(), session = { id, tracePath, controller, pending: null, result: null, wake: null }
   sessions.set(id, session)
   emit({ event: 'start', sourceSha: process.env.JEV_SOURCE_SHA ?? 'unknown', task: { ...task, inputs: Object.fromEntries(Object.entries(task.inputs).map(([k, v]) => [k, v.secret ? { ...v, value: '‹secret›' } : v])) } })

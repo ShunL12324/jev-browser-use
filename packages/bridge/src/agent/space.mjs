@@ -108,6 +108,10 @@ export function tier(op, e, page) {
   if (op === 'PRESS_ENTER') return e?.form && irreversible(page.elements.find(x => x.submit && x.form === e.form) ?? { ...e, submit: true, name: '', editable: false }, page) ? 'R3' : 'R2'
   // Dismissing an overlay (close / no thanks / not now) changes no data.
   if (/^(close|dismiss|no,? thanks|not now|maybe later|skip|×|✕|x)$/i.test(e.name.trim())) return 'R0'
+  // Closing a picker/dialog with its confirm button (Done/OK/Apply) only
+  // commits a selection inside the page: reversible, like an input.
+  if (e.dialog !== null && e.dialog !== undefined && /^(done|ok|apply|select|close)\b/i.test(e.name.trim())) return 'R1'
+  if (/^(done|ok)\b/i.test(e.name.trim()) && !e.submit) return 'R1'
   // Moving a picker or carousel view (next/previous month, year, slide) changes no data.
   if (/^(next|previous|prev)\s+(month|year|week|day|slide|image|photo)$/i.test(e.name.trim())) return 'R0'
   if (e.editable || e.tag === 'summary' || e.expanded !== null && e.expanded !== undefined || e.hasPopup || e.role === 'tab') return 'R0'

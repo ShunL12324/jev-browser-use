@@ -443,3 +443,16 @@ test('ledger lock contention waits (bounded) instead of failing; a stuck lock st
     assert.throws(() => reserveRequest(path, {}, 10000), { code: 'BUDGET_LOCKED' })
   } finally { delete process.env.JEV_LEDGER_LOCK_WAIT_MS; rmSync(dir, { recursive: true, force: true }) }
 })
+test('a validation message ("10 digits") picks the fitting goal span when the model is split', async () => {
+  n = 0
+  const phone = el('Phone', { value: '+1 617-555-0143' }), save = button('Save address'), f = fake([phone, save]), call = f.call
+  f.call = async (name, args) => { const r = await call(name, args); return args.action === 'agent_observe' && f.s.executed.length ? { ...r, text: 'Phone must be 10 digits with no spaces or symbols.' } : r }
+  let asks = 0
+  await run(task({ goal: 'Add this address: phone +1 617-555-0143.' }), f, async p => {
+    asks++
+    const r = await answer({ op: () => asks === 1 ? ['CLICK', save.ref] : asks === 2 ? ['TYPE_TEXT', phone.ref] : ['DONE'] })(p)
+    if (p.questions.text_value) { const c = p.questions.text_value.criteria, k11 = Object.keys(c).find(k => c[k] === '16175550143'), k10 = Object.keys(c).find(k => c[k] === '6175550143'); r.answers.text_value = { type: 'choice', choice: k11, probabilities: Object.fromEntries(Object.keys(c).map(k => [k, k === k11 ? 0.46 : k === k10 ? 0.42 : 0.12 / (Object.keys(c).length - 2)])) } }
+    return r
+  }, async () => { throw Error('no handoff expected') })
+  assert.equal(f.s.executed.find(e => e.op === 'type')?.text, '6175550143')
+})
