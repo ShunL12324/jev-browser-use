@@ -172,7 +172,7 @@ test('TYPE_TEXT asks the caller once per field and reuses the text', async () =>
   const q = el('Search'), f = fake([q]), texts = []
   let asks = 0
   await run(task(), f, async p => { asks++; return answer({ op: () => asks <= 2 ? ['TYPE_TEXT', q.ref] : ['DONE'] })(p) }, async h => { texts.push(h.kind); return { text: 'Lisbon' } })
-  assert.deepEqual(texts, ['text']); assert.deepEqual(f.s.executed.map(e => e.text), ['Lisbon', 'Lisbon'])
+  assert.deepEqual(texts, ['text']); assert.deepEqual(f.s.executed.map(e => e.text), ['Lisbon'])
 })
 test('an invalid operation answer executes nothing', async () => {
   n = 0
@@ -372,4 +372,49 @@ test('an extension without the current agent protocol stops the task with EXTENS
   g.call = async (name, args) => { const x = await gcall(name, args); return args.action === 'agent_observe' ? { ...x, text: undefined } : x }
   r = await run(task(), g, async () => ({}))
   assert.match(r.result.message, /TypeError/); assert.ok(r.events.some(e => e.event === 'internal_error' && e.stack))
+})
+test('text that cannot belong in a field is not typed; the model is told instead', async () => {
+  n = 0
+  const email = el('Email'), f = fake([email])
+  let asks = 0
+  const seen = []
+  await run(task({ goal: 'Add Jordan Blake to the address book' }), f, async p => { asks++; seen.push(JSON.stringify(p.state.recentActions)); return answer({ op: () => asks === 1 ? ['TYPE_TEXT', email.ref] : ['DONE'], text: 'Jordan Blake' })(p) })
+  assert.deepEqual(f.s.executed, []); assert.match(seen[1], /does not fit field/)
+})
+test('task tabs are closed at the end except the final one, which the next task closes; handoffs are logged with times', async () => {
+  const { startTask } = await import('../packages/bridge/dist/agent/task.mjs')
+  const { mkdtempSync, rmSync } = await import('node:fs'), { tmpdir } = await import('node:os'), { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'keep-tabs-'))
+  n = 0
+  const link = button('Help', { role: 'link', href: origin + '/help' }), buy = button('Place order', { submit: true }), f = fake([link, buy]), call = f.call
+  const tabs = [{ id: 7, url: origin + '/' }], closed = []
+  let next = 7
+  const host = { invoke: async (name, params, tabId) => {
+    if (name === 'tabs' && params.action === 'new') return { tabId: tabs.length === 1 && next === 7 ? (next++, 7) : ++next }
+    if (name === 'tabs' && params.action === 'list') return { ok: true, tabs }
+    if (name === 'tabs' && params.action === 'close') { closed.push(params.tabId); return { ok: true } }
+    if (name === 'tabs') return { ok: true }
+    const r = await call(name, { ...params, tabId })
+    if (params.op === 'click' && params.ref === link.ref) tabs.push({ id: 8, url: origin + '/help', openerTabId: 7 })
+    return r
+  } }
+  let asks = 0
+  const ask = async p => { asks++; return answer({ op: () => asks === 1 ? ['CLICK', link.ref] : asks === 2 ? ['SWITCH_TAB', 't7'] : asks === 3 ? ['CLICK', buy.ref] : ['DONE'] })(p) }
+  try {
+    const r = await startTask({ goal: 'g', startUrl: origin + '/', allowedOrigins: [origin] }, { host, ask, ledgerPath: join(dir, 'ledger.json'), traceDirectory: dir, handoff: async () => ({ approve: true }) })
+    assert.equal(r.status, 'done'); assert.equal(r.tabId, 7); assert.deepEqual(closed, [8])
+    const confirm = r.handoffs.find(h => h.kind === 'confirm')
+    assert.ok(confirm.approve === true && confirm.at >= confirm.askedAt)
+    asks = 3
+    await startTask({ goal: 'g', startUrl: origin + '/', allowedOrigins: [origin] }, { host, ask, ledgerPath: join(dir, 'ledger.json'), traceDirectory: dir, handoff: async () => ({ approve: true }) })
+    assert.equal(closed[1], 7)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+test('DONE is not accepted while filled inputs are unsubmitted; the submit-like CLICK target runs instead', async () => {
+  n = 0
+  const q = el('Where to?'), search = button('Search'), f = fake([q, search])
+  let asks = 0
+  const { result } = await run(task({ goal: 'Find flights to London' }), f, async p => { asks++; const r = await answer({ op: () => asks === 1 ? ['TYPE_TEXT', q.ref] : ['DONE'], text: 'London' })(p); if (asks === 2) r.answers.target_CLICK = choice(p.questions.target_CLICK, search.ref); return r }, async () => { throw Error('no handoff expected') })
+  // The DONE head of cycle 2 is overridden by the (default) CLICK target: Search.
+  assert.ok(f.s.executed.some(e => e.op === 'click' && e.ref === search.ref), JSON.stringify(f.s.executed)); assert.equal(result.status, 'done')
 })

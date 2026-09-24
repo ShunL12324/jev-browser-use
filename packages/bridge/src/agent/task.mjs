@@ -16,7 +16,7 @@ const input = z.union([z.object({ value: z.string().max(4000), purpose: z.string
 export const startSchema = z.object({
   goal: z.string().min(1).max(4000), startUrl: z.string().url(), allowedOrigins: z.array(z.string().url()).min(1).max(20),
   inputs: z.record(input).default({}), files: z.record(z.object({ fileId: z.string().min(1).max(100), purpose: z.string().min(1).max(300) }).strict()).default({}),
-  irreversible: z.enum(['confirm', 'deny', 'none']).default('confirm'), llm: z.enum(['handoff', 'none']).default('handoff'),
+  irreversible: z.enum(['confirm', 'deny', 'none']).default('confirm'), keepTabs: z.enum(['none', 'final', 'all']).default('final'), llm: z.enum(['handoff', 'none']).default('handoff'),
   budgets: z.object({ timeoutMs: z.number().int().min(1000).max(1800000).default(300000), maxSteps: z.number().int().min(1).max(300).default(120), maxJevRequests: z.number().int().min(1).max(300).default(80) }).strict().default({})
 }).strict()
 // Host secret manifest: {ref: {value, origins:[...]}}. Plaintext never enters
@@ -44,6 +44,9 @@ export function prepareTask(raw) {
 }
 
 const sessions = new Map()
+// Final tab of this session's previous task; closed when the next task starts
+// (keepTabs:'final' leaves it open only for reading the result).
+let previousFinalTab = null
 // Each call returns at the next handoff, at termination, or after waitMs.
 function wait(session, waitMs) {
   return new Promise(resolve => {
@@ -64,6 +67,7 @@ export async function startTask(raw, { host, ask = askJev, ledgerPath = process.
   const secretValues = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
   const redact = text => secretValues.reduce((t, v) => t.split(v).join('‹secret›'), text)
   const emit = event => appendFileSync(tracePath, redact(JSON.stringify({ taskId: id, at: new Date().toISOString(), ...event })) + '\n', { mode: 0o600 })
+  if (previousFinalTab !== null && task.keepTabs !== 'all') { const id = previousFinalTab; previousFinalTab = null; await host.invoke('tabs', { action: 'close', tabId: id }).catch(() => {}) }
   const controller = new AbortController(), session = { id, tracePath, controller, pending: null, result: null, wake: null }
   sessions.set(id, session)
   emit({ event: 'start', sourceSha: process.env.JEV_SOURCE_SHA ?? 'unknown', task: { ...task, inputs: Object.fromEntries(Object.entries(task.inputs).map(([k, v]) => [k, v.secret ? { ...v, value: '‹secret›' } : v])) } })
@@ -101,8 +105,12 @@ export async function startTask(raw, { host, ask = askJev, ledgerPath = process.
   // Warm DNS/TLS while the tab opens: an unauthenticated GET, not a Jev call.
   if (ask === askJev) fetch(process.env.TYPESAFE_BASE_URL ?? 'https://api.typesafe.ai', { signal: AbortSignal.timeout(10000) }).catch(() => {})
   const files = fileId => authorizeFile(fileId, authorized)
-  runTask(task, { call, ask: countedAsk, handoff: toCaller, emit, signal, files }).then(result => {
-    session.result = result; emit({ event: 'terminal', ...result }); session.wake?.()
+  runTask(task, { call, ask: countedAsk, handoff: toCaller, emit, signal, files }).then(async result => {
+    // Task tabs do not pile up: keep only the final one (or none / all).
+    const close = task.keepTabs === 'all' ? [] : (result.taskTabs ?? []).filter(id => task.keepTabs === 'none' || id !== result.tabId)
+    for (const id of close) await host.invoke('tabs', { action: 'close', tabId: id }).catch(() => {})
+    if (task.keepTabs === 'final' && Number.isInteger(result.tabId)) previousFinalTab = result.tabId
+    session.result = result; emit({ event: 'terminal', ...result, closedTabs: close }); session.wake?.()
     setTimeout(() => sessions.delete(id), 600000).unref()
   })
   return wait(session, waitMs)

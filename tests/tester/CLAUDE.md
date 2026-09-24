@@ -24,7 +24,7 @@ One run
    - `choose`: `{choice:"<option id>"}` for the option that best advances the goal, or `{choice:"none"}`.
    - `question`/others: short `{answer}`.
 4. Public tasks only: call `browser_eval_js {tabId: <result.tabId>, expression: <contents of page-state.js>}` and save the returned object to a file.
-5. Save the result to a file as JSON: `{runner:"tester-autonomous"|"tester-assisted", status, answer, finalUrl, tabId, metrics, tracePath, handoffs:[{kind, waitMs}]}` (take `metrics`, `tracePath`, `finalUrl` from the final `browser_task` result; handoffs from your own record).
+5. Save the result to a file as JSON: `{runner:"tester-autonomous"|"tester-assisted", status, answer, finalUrl, tabId, metrics, tracePath, handoffs}`, all taken from the final `browser_task` result (its `handoffs` carries kind, times and approvals; do not rebuild it yourself).
 6. `node $EVAL_ROOT/harness/run.mjs finish <pending> --result <file> --trace <tracePath> [--page-state <file>] --out $EVAL_ROOT/results/tester.jsonl`. It prints only pass/fail; that is the only grading you see.
 
 Report to master: per task and column, pass/fail, `metrics.agentMs`, `metrics.jevRequests`, handoff counts by kind, and anything odd you saw in the Chrome window (focus stealing, dialogs, tabs outside the agent window).

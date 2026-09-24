@@ -47,17 +47,43 @@ function visibleText(limit = 6000) {
 }
 // Elements within one viewport height of the visible area, nearest first,
 // capped; the rest is reported as omitted (reachable by scrolling).
+// Month/grid label for a cell (e.g. "November 2026"): the grid's own name,
+// else the nearest short heading-like text before it.
+function groupLabel(el: Element): string | null {
+  const grid = el.closest('[role="grid"],table,[role="rowgroup"]')
+  if (!grid) return null
+  const labelled = (grid.getAttribute('aria-labelledby') ?? '').split(/\s+/).map(id => document.getElementById(id)?.textContent?.trim() ?? '').join(' ').trim()
+  const own = grid.getAttribute('aria-label') || labelled || (grid.querySelector('caption') as HTMLElement | null)?.innerText
+  if (own?.trim()) return own.trim().slice(0, 60)
+  for (let n: Element | null = grid, d = 0; n && d < 3; n = n.parentElement, d++) {
+    for (let s = n.previousElementSibling; s; s = s.previousElementSibling) {
+      const t = (s as HTMLElement).innerText?.trim().split('\n')[0]?.trim()
+      if (t && t.length >= 3 && t.length <= 40 && !/^[\d\s$.,]+$/.test(t)) return t
+      if (t) break
+    }
+  }
+  return null
+}
+const isCell = (el: Element) => el.matches('[role="gridcell"],td,[role="gridcell"] *,td *')
 function observe(limit: number) {
-  const snapshot = buildSnapshot({ budget: limit })
-  const near = snapshot.interactables.filter(it => { const r = findByRef(it.ref)!.getBoundingClientRect(); return r.bottom > -innerHeight && r.top < 2 * innerHeight })
-  const elements = near.map(it => {
+  const snapshot = buildSnapshot({ budget: limit * 3 })
+  const near = snapshot.interactables.filter(it => {
+    const el = findByRef(it.ref)!, r = el.getBoundingClientRect()
+    if (!(r.bottom > -innerHeight && r.top < 2 * innerHeight)) return false
+    // A grid cell wrapping its own button is the same target twice.
+    return !(el.getAttribute('role') === 'gridcell' && el.querySelector('button,[role="button"],a[href]'))
+  })
+  // Large grids (calendars, tables) must not crowd out the few controls
+  // around them (Done, next month, Search): non-cell controls come first.
+  const picked = [...near.filter(it => !isCell(findByRef(it.ref)!)), ...near.filter(it => isCell(findByRef(it.ref)!))].slice(0, limit)
+  const elements = picked.map(it => {
     const el = findByRef(it.ref)!, f = facts(el), r = el.getBoundingClientRect()
     const input = el instanceof HTMLInputElement ? el : null
     return { ref: it.ref, role: f.role, name: f.name, tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.role === 'combobox' && !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) ? (el as HTMLElement).innerText?.trim().slice(0, 120) || null : f.value,
       checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert, readonly: f.readonly, required: f.required, valid: f.valid,
       modalBlocked: f.modalBlocked, dialog: f.dialog, context: f.context, href: f.href, options: f.options, files: f.files?.length, editable: editable(el) && !f.readonly,
       password: input?.type === 'password', submit: f.buttonType === 'submit' || input?.type === 'submit' || input?.type === 'image', formMethod: (el as HTMLInputElement).form?.method ?? null,
-      payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, form: (el as HTMLInputElement).form ? getOrAssignRef((el as HTMLInputElement).form!).ref : null, item: itemText(el, f.name), guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
+      payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, form: (el as HTMLInputElement).form ? getOrAssignRef((el as HTMLInputElement).form!).ref : null, item: isCell(el) ? groupLabel(el) : itemText(el, f.name), guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
   })
   // The budget keeps the elements nearest the viewport; the model reads them
   // in page order, which is how forms and lists make sense.
@@ -65,7 +91,7 @@ function observe(limit: number) {
   const marker = hash(JSON.stringify([location.href, scrollY, elements.map(e => [e.ref, e.role, e.name, e.value, e.checked, e.expanded, e.disabled])]))
   return { ok: true, agentProtocol: AGENT_PROTOCOL, build: BUILD_ID, documentId, url: location.href, title: document.title, readyState: document.readyState, text: visibleText(),
     dialogs: recentDialogs(),
-    scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - near.length, marker }
+    scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - picked.length, marker }
 }
 const reject = (code: string) => ({ ok: true as const, execution: 'not_sent', code })
 // Returns null when the center is hit-testable, else a short description of

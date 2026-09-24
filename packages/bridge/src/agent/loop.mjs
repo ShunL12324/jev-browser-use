@@ -3,7 +3,7 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
-import { bindCandidates, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
+import { bindCandidates, fits, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
 export const AGENT_PROTOCOL = 2
@@ -11,6 +11,8 @@ const crossDocumentHref = (href, current) => { try { const a = new URL(href), b 
 // Enter in a form submits it: judge it as its submit control (or an unnamed
 // POST/submit stand-in when the form has none).
 export const submitterOf = (el, page) => el?.form ? page.elements.find(e => e.submit && e.form === el.form) ?? { ...el, submit: true, name: '', editable: false } : el
+const SUBMIT_WORDS = /\b(search|find|submit|apply|go|save|update|continue|next|send|book|place|confirm|sign in|log in)\b/i
+const submitLike = e => !!e && !e.editable && (e.submit || ['button', 'link'].includes(e.role) && SUBMIT_WORDS.test(e.name ?? ''))
 const originOf = url => { try { return new URL(url).origin } catch { return null } }
 // A judgment stays usable for one target while the document, URL and that
 // target's identity (role, name, context, dialog) are unchanged. Unrelated
@@ -23,10 +25,13 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
   const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
   const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
-  let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false
+  let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false, pendingInputs = false
   const taskTabs = new Map(), seenValues = new Map()
   const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }
-  const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, metrics: m, ...extra } }
+  // handoffs: every caller round trip with wall-clock times (graders check that
+  // an approved confirm precedes each commit).
+  const handoffLog = []
+  const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, taskTabs: [...taskTabs.keys()], metrics: m, handoffs: handoffLog, ...extra } }
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
   const observe = async () => {
     for (let attempt = 0; ; attempt++) {
@@ -54,7 +59,9 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     m.handoffs++; m.handoffKinds[kind] = (m.handoffKinds[kind] ?? 0) + 1
     const request = { kind, ...body, observationSummary: { url: page.url, title: page.title, visibleText: page.text.slice(0, 3000) } }
     emit({ event: 'handoff', request })
+    const askedAt = Date.now(), started = now()
     const answer = await timed('handoffWaitMs', () => handoff(request))
+    handoffLog.push({ kind, reason: body.reason, askedAt, at: Date.now(), waitMs: Math.round(now() - started), ...(kind === 'confirm' ? { approve: answer?.approve === true } : {}) })
     emit({ event: 'handoff_answer', kind, answer })
     return answer ?? {}
   }
@@ -148,6 +155,10 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     // Refs are per document: every record carries the document it acted on.
     const entry = { doc: before.documentId, op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(newText ? { newText } : {}), ...(confirmDenied !== undefined ? { confirmDenied } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
+    // Inputs changed since the last submit-like step (Enter, a submit/search
+    // style control, or a navigation) are "pending": DONE is not accepted yet.
+    if (['type', 'select', 'check'].includes(op)) pendingInputs = true
+    if (op === 'key' || entry.navigated || op === 'click' && submitLike(el)) pendingInputs = false
     stalls = changed || op === 'wait' ? 0 : stalls + 1
     return { sent: true, ...entry }
   }
@@ -172,6 +183,13 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         if (answer.unavailable) return result('blocked', { reason: 'needs_text' })
         if (typeof answer.text !== 'string' || !answer.text || answer.text.length > 2000 || /[\u0000-\u001f]/.test(answer.text)) return result('blocked', { reason: 'no_text' })
         text = answer.text; textCache.set(key, text)
+      }
+      // Never type a value that cannot belong in the field, or retype the
+      // value it already holds; tell the model instead (no silent loops).
+      if (!fits(el, text) || el.value === text) {
+        const why = el.value === text ? 'the field already contains this text' : `"${text.slice(0, 40)}" does not fit field "${el.name}"`
+        history.push({ doc: page.documentId, op: 'type', ref: el.ref, name: el.name, notSent: `not executed: ${why}` }); stalls++
+        emit({ event: 'outcome', execution: 'not_sent', code: 'TEXT_REJECTED', why }); return
       }
       await exec('type', el, { text }); return
     }
@@ -312,6 +330,18 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       if (postBatch && (level === 'R3' || (level === 'R1' ? pOp : p) < (GATES[level] ?? 0) || !el && id || level === 'R2' && p < 0.6)) { emit({ event: 'post_batch', skipped: level }); continue }
       // Never accept a completion claim while an expected navigation has not
       // produced a new document; look again once instead.
+      // A filled form whose submit-like control is still on the page is not a
+      // finished task: submit it if that is the model's CLICK target, else ask.
+      if (op === 'DONE' && pendingInputs && page.elements.some(e => submitLike(e) && !e.disabled && !e.modalBlocked)) {
+        const h = invalid.has('target_CLICK') ? null : answers.target_CLICK, t = h && built.targets.CLICK?.[h.choice], e2 = t && page.elements.find(x => x.ref === t.ref)
+        emit({ event: 'route', why: 'done_with_pending_inputs', target: e2?.name })
+        pendingInputs = false
+        if (e2 && submitLike(e2) && h.probabilities[h.choice] >= 0.5 && !irreversible(e2, page)) { const out = await act('CLICK', t, e2, answers, built); if (out) return out; continue }
+        const picked = await choose(answers, built, 'done_with_unsubmitted_inputs')
+        if (picked.stop) return picked.stop
+        const tgt = picked.id ? built.targets[picked.op][picked.id] : null
+        const out = await act(picked.op, tgt, tgt && page.elements.find(x => x.ref === tgt.ref), answers, built); if (out) return out; continue
+      }
       if (op === 'DONE' && navPending) { navPending = false; emit({ event: 'route', why: 'navigation_pending', op }); await delay(500, undefined, { signal }); await observe(); continue }
       // Search/submit-like targets commit a query or form: use the stricter gate.
       const committing = level === 'R2' && (op === 'PRESS_ENTER' || el?.submit || /\b(search|submit|apply|find)\b/i.test(el?.name ?? ''))

@@ -66,6 +66,8 @@ export function pageOperations(page, history, used) {
 }
 
 // Fields that could receive one supplied input, with the host operation.
+// Plausibility of a text for a field, from its input type and label.
+export const fits = (e, v) => typed(e, v) && (!/e-?mail/i.test(e.name) || v.includes('@')) && (!/\b(phone|tel|mobile)\b/i.test(e.name) || (v.match(/\d/g) ?? []).length >= 5) && (!/\b(zip|postal|postcode)\b/i.test(e.name) || /\d/.test(v))
 const typed = (e, v) => e.inputType === 'date' ? /^\d{4}-\d{2}-\d{2}$/.test(v) : e.inputType === 'number' ? /^-?\d+(\.\d+)?$/.test(v) : e.inputType === 'email' ? v.includes('@') : true
 export function bindCandidates(page, input, used) {
   const out = {}
