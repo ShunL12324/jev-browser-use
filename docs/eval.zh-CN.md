@@ -24,7 +24,7 @@
 | ID | 能力 | 权重 | 本地任务 | 公开任务 |
 |---|---|---|---|---|
 | NAV-1 | Open URL, follow links, go back | 5 | forma.research_article | public.wikipedia_godel |
-| NAV-2 | Site search box / query submission | 5 | portal.search_detail, portal.login_reserve, portal.unachievable, forma.travel_filter | public.wikipedia_godel, public.wikipedia_eiffel_year, public.wikipedia_opera_house, public.wikipedia_lovelace_birth, public.arxiv_attention_title, public.mdn_flex_grow_default, public.python_docs_deque, public.cambridge_serendipity, public.osm_search_eiffel, public.wikipedia_compare_births |
+| NAV-2 | Site search box / query submission | 5 | portal.search_detail, portal.login_reserve, portal.unachievable, forma.travel_filter, feed.collect_text_posts | public.wikipedia_godel, public.wikipedia_eiffel_year, public.wikipedia_opera_house, public.wikipedia_lovelace_birth, public.arxiv_attention_title, public.mdn_flex_grow_default, public.python_docs_deque, public.cambridge_serendipity, public.osm_search_eiffel, public.wikipedia_compare_births |
 | NAV-3 | Filters and sorting | 4 | portal.filter_sort_page, shop.infinite_count, shop.cheapest_brand, forma.travel_filter | — |
 | NAV-4 | Pagination | 3 | portal.filter_sort_page | — |
 | NAV-5 | Hover/dropdown navigation menus | 2 | portal.events_aggregate, portal.download_hours | — |
@@ -34,6 +34,7 @@
 | EXT-4 | Gather information across several pages | 3 | — | public.wikipedia_compare_births |
 | EXT-5 | Detect unachievable/absent information | 2 | portal.unachievable | — |
 | EXT-6 | Answer from a downloaded text file (CSV/TXT/JSON) | 1 | portal.download_hours | — |
+| COL-1 | Collect N items from a list by opening each (modal or page), extracting verbatim text, skipping unfit items, without revisits | 3 | feed.collect_text_posts | — |
 | FORM-1 | Text inputs (email, phone, number, free text) | 5 | shop.address_validation, workspace.closed_shadow_recovery, workspace.new_tab_code, complex_forms.application | — |
 | FORM-2 | Native select, radio, checkbox | 5 | shop.checkout_confirm, shop.cart_edit, workspace.cross_origin_booking, forma.travel_filter, complex_forms.application | — |
 | FORM-3 | Custom listbox/select widgets (ARIA) | 4 | shop.configure_add_to_cart, workspace.shadow_settings, complex_forms.application | public.google_flights_oneway |
@@ -58,12 +59,13 @@
 | CTX-4 | Cross-origin iframe | 2 | workspace.cross_origin_booking, workspace.booking_denied | — |
 | CTX-5 | Open shadow DOM, including nested components | 2 | workspace.shadow_settings | — |
 | CTX-6 | Closed shadow DOM | 1 | workspace.closed_shadow_recovery | — |
-| SCR-1 | Infinite scroll | 3 | shop.infinite_count | — |
+| SCR-1 | Infinite scroll | 3 | shop.infinite_count, feed.collect_text_posts | — |
 | SCR-2 | Virtualized list inside a nested scroll container | 2 | workspace.virtual_directory | — |
 | SCR-3 | Offscreen targets that must be revealed | 4 | complex_forms.application | — |
 | DLG-1 | Cookie banner / blocking consent overlay | 4 | portal.search_detail, portal.filter_sort_page, portal.events_aggregate, portal.download_hours, portal.login_reserve, portal.slow_report, portal.retry_error, portal.unachievable | public.cambridge_serendipity |
-| DLG-2 | Interstitial/newsletter modal | 3 | shop.configure_add_to_cart, shop.infinite_count, shop.cheapest_brand, shop.checkout_confirm, shop.login_2fa, shop.cart_edit, shop.address_validation | — |
+| DLG-2 | Interstitial/newsletter modal | 3 | shop.configure_add_to_cart, shop.infinite_count, shop.cheapest_brand, shop.checkout_confirm, shop.login_2fa, shop.cart_edit, shop.address_validation, feed.collect_text_posts | — |
 | DLG-3 | Native alert/confirm/prompt dialogs | 2 | portal.cancel_confirm, portal.renew_alert | — |
+| DLG-4 | Content opened in a modal over a list, closed to continue (Esc / close button) | 3 | feed.collect_text_posts | — |
 | INT-1 | Hover-revealed content (tooltips) | 2 | workspace.hover_tooltip | — |
 | INT-2 | Drag and drop | 1 | workspace.drag_card | — |
 | INT-3 | Keyboard-operated widgets (tabs, arrows) | 2 | workspace.shadow_settings | — |
@@ -80,7 +82,7 @@
 | LIM-3 | Answers from PDF/Office/binary downloads（known-limit） | 1 | — | — |
 | LIM-4 | Browser permission prompts (geolocation, notifications), print dialogs（known-limit） | 1 | — | — |
 
-总权重 158；known-limit 权重 5（3.2%）。本地任务 33 个，公开只读任务 12 个。
+总权重 164；known-limit 权重 5（3.0%）。本地任务 34 个，公开只读任务 12 个。
 
 ## 2. 本地测试站
 
@@ -93,6 +95,7 @@
 | workspace（Tidewater Workspace） | 17443 | 原生 JS + Web Components | 拖拽、tooltip、open/嵌套/closed shadow DOM、ARIA tabs 与键盘 slider、虚拟列表（嵌套滚动）、同源 iframe 富文本、跨域 iframe 预订、OAuth 式弹窗、新 tab 取码 |
 | partner | 17444 | 跨域伙伴站 | workspace 的跨域 iframe 与授权弹窗（不用 cookie，run id 走 URL） |
 | forma | 17445 | jev-ultrafast 本地夹具**原样**拷贝（MIT，见 `sites/forma/SOURCE.txt`） | 与 jev-ultrafast 共享的酒店筛选与文章任务；服务端追加一个只读观察脚本上报可见状态 |
+| feed（Driftnote） | 17446 | 纯 HTML + 脚本；held-out 变体改用原生 `<dialog>`、分栏布局与不同标签 | 仿小红书瀑布流：卡片只显示截断标题与懒加载封面，帖子在 role=dialog aria-modal 弹窗中打开（URL 变为 /explore/<id>，Esc/关闭按钮返回列表），图文与视频混排，无限加载，第 3 次打开后弹出可关闭的登录提示。collect 任务：runner 视图带 `kind: collect` 与 `collect {count, item}`，结果为 `items[]`；oracle 按服务端数据判定数量、身份（URL 或标题）、无重复、不含视频、来自搜索结果、正文逐字包含、且确实通过 UI 打开过（服务端记录） |
 | complex-forms | 17431 | React 19 五步表单 | 32 个值 + PDF 上传、动态行、异步联动、自定义 listbox；此处只给**无目标**的 `inputs` |
 
 **种子与变体**：每站两个种子（`atlas`、`birch`），数据、目标值、凭据都随种子变化。`alternate` 变体是 held-out：portal/shop/workspace 改变标签文字、DOM 顺序与布局（不仅是 CSS）；complex-forms 的 alternate 只是 CSS，标记 `heldOutStrength: css_only`，不计入 held-out 覆盖；forma 没有变体（原样夹具）。

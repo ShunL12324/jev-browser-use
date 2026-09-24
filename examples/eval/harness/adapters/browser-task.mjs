@@ -45,7 +45,7 @@ export function createRunner({ bridge } = {}) {
         context = await chromium.launchPersistentContext(join(temp, 'profile'), { executablePath: CHROMIUM, headless: true, viewport: { width: 1280, height: 900 }, args: [...proxyArgs(), `--disable-extensions-except=${extension}`, `--load-extension=${extension}`] })
         await (context.serviceWorkers()[0] ?? context.waitForEvent('serviceworker', { timeout: 15000 }))
         const call = async args => { const r = await client.callTool({ name: 'browser_task', arguments: args }, undefined, { timeout: view.budgets.timeoutMs + 60000 }); return JSON.parse(r.content.find(c => c.type === 'text').text) }
-        let result = await call({ action: 'start', goal: view.goal, startUrl: view.startUrl, allowedOrigins: view.allowedOrigins, inputs: view.inputs, files: view.files, irreversible: view.irreversible, llm: 'handoff', budgets: { timeoutMs: view.budgets.timeoutMs, maxSteps: view.budgets.maxSteps } })
+        let result = await call({ action: 'start', goal: view.goal, startUrl: view.startUrl, allowedOrigins: view.allowedOrigins, inputs: view.inputs, files: view.files, irreversible: view.irreversible, ...(view.kind ? { kind: view.kind, collect: view.collect } : {}), llm: 'handoff', budgets: { timeoutMs: view.budgets.timeoutMs, maxSteps: view.budgets.maxSteps } })
         while (result.status === 'running' || result.status === 'needs_input') {
           if (result.status === 'running') { await new Promise(r => setTimeout(r, 500)); result = await call({ action: 'status', taskId: result.taskId }); continue }
           const h = result.handoff, at = Date.now(), answer = await ctx.handoff(h)
@@ -55,7 +55,7 @@ export function createRunner({ bridge } = {}) {
         }
         const page = context.pages().find(p => p.url() === result.finalUrl) ?? context.pages().at(-1)
         const pageState = ctx.readPage && page ? await ctx.readPage(page) : page ? await readPageState(page).catch(() => null) : null
-        return { status: result.status, answer: result.answer, finalUrl: result.finalUrl, handoffs, metrics: result.metrics ?? {}, tracePath: result.tracePath, pageState, declinedHandoff: result.declinedHandoff }
+        return { status: result.status, answer: result.answer, items: result.items, skipped: result.skipped, visited: result.visited, sessionId: result.sessionId, finalUrl: result.finalUrl, handoffs, metrics: result.metrics ?? {}, tracePath: result.tracePath, pageState, declinedHandoff: result.declinedHandoff }
       } finally { await client?.close().catch(() => {}); await context?.close().catch(() => {}); await rm(temp, { recursive: true, force: true }) }
     }
   }

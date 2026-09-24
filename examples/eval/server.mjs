@@ -9,9 +9,10 @@ import { createShop } from './sites/shop/app.mjs'
 import { createWorkspace } from './sites/workspace/app.mjs'
 import { createPartner } from './sites/partner/app.mjs'
 import { createForma } from './sites/forma/app.mjs'
+import { createFeed } from './sites/feed/app.mjs'
 
 export const HOST = process.env.EVAL_HOST ?? '127.0.0.1'
-export const PORTS = { portal: 17441, shop: 17442, workspace: 17443, partner: 17444, forma: 17445 }
+export const PORTS = { portal: 17441, shop: 17442, workspace: 17443, partner: 17444, forma: 17445, feed: 17446 }
 export const origin = site => `http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORTS[site]}`
 
 export async function startAll({ quiet = false } = {}) {
@@ -27,6 +28,7 @@ export async function startAll({ quiet = false } = {}) {
   await listen('workspace', createWorkspace({ partnerOrigin: origin('partner'), partner: partner.store }).app)
   await listen('partner', partner.app)
   await listen('forma', createForma().app)
+  await listen('feed', createFeed().app)
   // Written only after every port is bound, so a failed duplicate start cannot
   // replace the running servers' token. Only the harness reads this file.
   writeFileSync(new URL('./.eval-token', import.meta.url), EVAL_TOKEN, { mode: 0o600 })

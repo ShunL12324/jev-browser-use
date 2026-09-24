@@ -58,7 +58,10 @@ export async function prepare(task, { seed = 'atlas', variant = 'standard' } = {
     id: task.id, startUrl: siteOrigin(site) + reset.url, goal: fill(task.goal, params), inputs,
     // Only fileId and purpose leave the harness; hostPath/sha256 stay private.
     files: Object.fromEntries(Object.entries(files).map(([k, f]) => [k, { fileId: f.fileId, purpose: f.purpose }])),
-    allowedOrigins: allowedSites.map(siteOrigin), irreversible: task.irreversible, budgets: { ...DEFAULT_BUDGETS, ...task.budgets }
+    allowedOrigins: allowedSites.map(siteOrigin), irreversible: task.irreversible, budgets: { ...DEFAULT_BUDGETS, ...task.budgets },
+    // Collect tasks: the runner is told what to collect and how many; the
+    // matching server items stay private to the oracle.
+    ...(task.collect ? { kind: 'collect', collect: { count: Number(fill(String(task.collect.count), params)), item: fill(task.collect.item, params) } } : {})
   }
   return { runnerView, run: { taskId: task.id, suite: 'local', site, runId: reset.runId, seed, variant, files, preparedAt: Date.now() } }
 }

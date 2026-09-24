@@ -6,11 +6,12 @@ import { portalTasks } from '../sites/portal/app.mjs'
 import { shopTasks } from '../sites/shop/app.mjs'
 import { workspaceTasks } from '../sites/workspace/app.mjs'
 import { formaTasks } from '../sites/forma/app.mjs'
+import { feedTasks } from '../sites/feed/app.mjs'
 import { solvers } from '../mechanical/solvers.mjs'
 
 const checklist = JSON.parse(readFileSync(new URL('../checklist.json', import.meta.url)))
 const ids = new Set(checklist.items.map(i => i.id))
-const server = { ...portalTasks(), ...shopTasks(), ...workspaceTasks(), ...formaTasks() }
+const server = { ...portalTasks(), ...shopTasks(), ...workspaceTasks(), ...formaTasks(), ...feedTasks() }
 
 test('every task uses known checklist ids and a known oracle', () => {
   for (const t of loadTasks()) {
@@ -18,7 +19,7 @@ test('every task uses known checklist ids and a known oracle', () => {
     assert.ok(['none', 'confirm', 'deny'].includes(t.irreversible), t.id)
     if (t.suite === 'local' && t.site !== 'complex-forms') {
       const s = server[t.id]; assert.ok(s, `${t.id}: no server-side definition`)
-      assert.ok(t.oracle.kind === 'answer' ? s.answer : s.check, `${t.id}: oracle kind ${t.oracle.kind} not implemented`)
+      assert.ok(t.oracle.kind === 'answer' ? s.answer : t.oracle.kind === 'items' ? s.items : s.check, `${t.id}: oracle kind ${t.oracle.kind} not implemented`)
       assert.ok(solvers[t.id], `${t.id}: no mechanical solver`)
     }
     if (t.suite === 'public') assert.ok(t.check && t.allowedOrigins?.length && t.startUrl.startsWith('https://'), t.id)

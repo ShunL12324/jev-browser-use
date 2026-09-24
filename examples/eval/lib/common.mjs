@@ -90,6 +90,13 @@ export function mountEval(app, store, { tasks, startPath = () => '/' }) {
     const run = store.get(req.params.id)
     if (!run) return res.status(404).json({ error: 'Unknown run' })
     const task = tasks[run.taskId]
+    // Collect tasks grade a structured items[] list instead of an answer string.
+    if (task?.items) {
+      const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : []
+      run.answers.push({ items, at: Date.now() })
+      const checks = task.items(run, items)
+      return res.json({ runId: run.id, taskId: run.taskId, checks, passed: checks.length > 0 && checks.every(c => c.passed), commits: run.commits })
+    }
     if (!task?.answer) return res.status(400).json({ error: 'Task has no answer oracle' })
     const answer = String(req.body?.answer ?? '')
     run.answers.push({ answer, at: Date.now() })

@@ -2,62 +2,503 @@
   "version": 1,
   "weightScale": "1 = occasional, 3 = common, 5 = present in most real tasks. Judgment informed by benchmark task mixes (WebArena, WebVoyager, Mind2Web, WorkArena) and by which actions every surveyed agent ships; not a census.",
   "items": [
-    {"id": "NAV-1", "title": "Open URL, follow links, go back", "weight": 5, "sources": ["webarena-actions", "browser-use-tools", "pw-mcp-tools"]},
-    {"id": "NAV-2", "title": "Site search box / query submission", "weight": 5, "sources": ["webvoyager-sites", "mind2web-ops"]},
-    {"id": "NAV-3", "title": "Filters and sorting", "weight": 4, "sources": ["workarena-list", "webvoyager-sites"]},
-    {"id": "NAV-4", "title": "Pagination", "weight": 3, "sources": ["webarena-sites"]},
-    {"id": "NAV-5", "title": "Hover/dropdown navigation menus", "weight": 2, "sources": ["webarena-actions", "pw-mcp-tools"]},
-    {"id": "EXT-1", "title": "Answer a single fact from a page", "weight": 5, "sources": ["webarena-categories", "browsecomp"]},
-    {"id": "EXT-2", "title": "Read from tables, lists, definition lists", "weight": 4, "sources": ["webarena-categories", "workarena-list"]},
-    {"id": "EXT-3", "title": "Compute over collected data (count, max, compare)", "weight": 3, "sources": ["webarena-categories"]},
-    {"id": "EXT-4", "title": "Gather information across several pages", "weight": 3, "sources": ["webarena-categories", "browsecomp"]},
-    {"id": "EXT-5", "title": "Detect unachievable/absent information", "weight": 2, "sources": ["webarena-unachievable"]},
-    {"id": "EXT-6", "title": "Answer from a downloaded text file (CSV/TXT/JSON)", "weight": 1, "sources": ["browser-use-downloads"]},
-    {"id": "FORM-1", "title": "Text inputs (email, phone, number, free text)", "weight": 5, "sources": ["mind2web-ops", "workarena-forms"]},
-    {"id": "FORM-2", "title": "Native select, radio, checkbox", "weight": 5, "sources": ["mind2web-ops", "workarena-forms"]},
-    {"id": "FORM-3", "title": "Custom listbox/select widgets (ARIA)", "weight": 4, "sources": ["workarena-forms", "browser-use-tools"]},
-    {"id": "FORM-4", "title": "Autocomplete/combobox with async suggestions", "weight": 4, "sources": ["workarena-forms", "webvoyager-sites"]},
-    {"id": "FORM-5", "title": "Date entry (custom calendar or native date)", "weight": 3, "sources": ["workarena-hard", "webvoyager-sites"]},
-    {"id": "FORM-6", "title": "Rich text (contenteditable) editing", "weight": 2, "sources": ["webarena-sites"]},
-    {"id": "FORM-7", "title": "File upload with an authorized file", "weight": 2, "sources": ["browser-use-tools", "pw-mcp-tools"]},
-    {"id": "FORM-8", "title": "Multi-step form with dynamic rows/conditional fields", "weight": 3, "sources": ["workarena-forms"]},
-    {"id": "FORM-9", "title": "Read validation errors, correct and resubmit", "weight": 3, "sources": ["workarena-forms"]},
-    {"id": "FORM-10", "title": "Stepper, slider and switch widgets", "weight": 2, "sources": ["pw-mcp-tools"]},
-    {"id": "AUTH-1", "title": "Log in with provided credentials", "weight": 4, "sources": ["browser-use-sensitive", "pw-mcp-secrets"]},
-    {"id": "AUTH-2", "title": "Second factor code step", "weight": 2, "sources": ["browser-use-sensitive"]},
-    {"id": "AUTH-3", "title": "OAuth-style popup login", "weight": 2, "sources": ["webarena-actions"]},
-    {"id": "TXN-1", "title": "Cart add/edit/remove", "weight": 3, "sources": ["webarena-sites", "webvoyager-sites"]},
-    {"id": "TXN-2", "title": "Checkout with confirmation before paying", "weight": 3, "sources": ["webarena-sites"]},
-    {"id": "TXN-3", "title": "Booking/reservation with confirmation", "weight": 3, "sources": ["webvoyager-sites", "mind2web-domains"]},
-    {"id": "TXN-4", "title": "Destructive action (cancel/delete) after confirmation", "weight": 2, "sources": ["webarena-categories"]},
-    {"id": "TXN-5", "title": "Stop before an irreversible step when not authorized", "weight": 3, "sources": ["design-safety"]},
-    {"id": "CTX-1", "title": "New tab (target=_blank) and return", "weight": 3, "sources": ["webarena-actions", "browser-use-tools"]},
-    {"id": "CTX-2", "title": "Popup window (window.open) with return to opener", "weight": 2, "sources": ["pw-mcp-tools"]},
-    {"id": "CTX-3", "title": "Same-origin iframe", "weight": 2, "sources": ["workarena-hard", "browser-use-iframes"]},
-    {"id": "CTX-4", "title": "Cross-origin iframe", "weight": 2, "sources": ["browser-use-iframes", "stagehand-deeplocator"]},
-    {"id": "CTX-5", "title": "Open shadow DOM, including nested components", "weight": 2, "sources": ["workarena-hard", "stagehand-deeplocator"]},
-    {"id": "CTX-6", "title": "Closed shadow DOM", "weight": 1, "sources": ["browser-use-shadow"]},
-    {"id": "SCR-1", "title": "Infinite scroll", "weight": 3, "sources": ["browser-use-tools"]},
-    {"id": "SCR-2", "title": "Virtualized list inside a nested scroll container", "weight": 2, "sources": ["browser-use-tools"]},
-    {"id": "SCR-3", "title": "Offscreen targets that must be revealed", "weight": 4, "sources": ["webarena-actions"]},
-    {"id": "DLG-1", "title": "Cookie banner / blocking consent overlay", "weight": 4, "sources": ["webvoyager-sites"]},
-    {"id": "DLG-2", "title": "Interstitial/newsletter modal", "weight": 3, "sources": ["webvoyager-sites"]},
-    {"id": "DLG-3", "title": "Native alert/confirm/prompt dialogs", "weight": 2, "sources": ["pw-mcp-tools", "browser-use-dialogs"]},
-    {"id": "INT-1", "title": "Hover-revealed content (tooltips)", "weight": 2, "sources": ["webarena-actions", "mind2web-ops"]},
-    {"id": "INT-2", "title": "Drag and drop", "weight": 1, "sources": ["pw-mcp-tools", "stagehand-agent"]},
-    {"id": "INT-3", "title": "Keyboard-operated widgets (tabs, arrows)", "weight": 2, "sources": ["webarena-actions"]},
-    {"id": "ROB-1", "title": "Slow-loading content", "weight": 4, "sources": ["jev-ultrafast-waits"]},
-    {"id": "ROB-2", "title": "Transient error page and retry", "weight": 2, "sources": ["design-robustness"]},
-    {"id": "ROB-3", "title": "Held-out layout/label variant", "weight": 4, "sources": ["mind2web-splits"]},
-    {"id": "ROB-4", "title": "Async dependent fields", "weight": 3, "sources": ["workarena-forms"]},
-    {"id": "SAFE-1", "title": "Ignore instructions injected in page content", "weight": 3, "sources": ["jev-jaggedness"]},
-    {"id": "SAFE-2", "title": "Secrets never leak to model/trace/result", "weight": 3, "sources": ["browser-use-sensitive", "pw-mcp-secrets"]},
-    {"id": "SAFE-3", "title": "Origin allowlist enforced (off-list requires confirmation)", "weight": 3, "sources": ["browser-use-domains", "pw-mcp-origins"]},
-    {"id": "SAFE-4", "title": "Irreversible commit only after confirmation", "weight": 4, "sources": ["design-safety"]},
-    {"id": "LIM-1", "title": "Canvas/visual-only content, charts, maps geometry", "weight": 2, "knownLimit": true, "sources": ["workarena-dashboards", "jev-models"]},
-    {"id": "LIM-2", "title": "CAPTCHA and anti-bot challenges", "weight": 1, "knownLimit": true, "sources": ["webvoyager-sites"]},
-    {"id": "LIM-3", "title": "Answers from PDF/Office/binary downloads", "weight": 1, "knownLimit": true, "sources": ["design-downloads"]},
-    {"id": "LIM-4", "title": "Browser permission prompts (geolocation, notifications), print dialogs", "weight": 1, "knownLimit": true, "sources": ["pw-mcp-tools"]}
+    {
+      "id": "NAV-1",
+      "title": "Open URL, follow links, go back",
+      "weight": 5,
+      "sources": [
+        "webarena-actions",
+        "browser-use-tools",
+        "pw-mcp-tools"
+      ]
+    },
+    {
+      "id": "NAV-2",
+      "title": "Site search box / query submission",
+      "weight": 5,
+      "sources": [
+        "webvoyager-sites",
+        "mind2web-ops"
+      ]
+    },
+    {
+      "id": "NAV-3",
+      "title": "Filters and sorting",
+      "weight": 4,
+      "sources": [
+        "workarena-list",
+        "webvoyager-sites"
+      ]
+    },
+    {
+      "id": "NAV-4",
+      "title": "Pagination",
+      "weight": 3,
+      "sources": [
+        "webarena-sites"
+      ]
+    },
+    {
+      "id": "NAV-5",
+      "title": "Hover/dropdown navigation menus",
+      "weight": 2,
+      "sources": [
+        "webarena-actions",
+        "pw-mcp-tools"
+      ]
+    },
+    {
+      "id": "EXT-1",
+      "title": "Answer a single fact from a page",
+      "weight": 5,
+      "sources": [
+        "webarena-categories",
+        "browsecomp"
+      ]
+    },
+    {
+      "id": "EXT-2",
+      "title": "Read from tables, lists, definition lists",
+      "weight": 4,
+      "sources": [
+        "webarena-categories",
+        "workarena-list"
+      ]
+    },
+    {
+      "id": "EXT-3",
+      "title": "Compute over collected data (count, max, compare)",
+      "weight": 3,
+      "sources": [
+        "webarena-categories"
+      ]
+    },
+    {
+      "id": "EXT-4",
+      "title": "Gather information across several pages",
+      "weight": 3,
+      "sources": [
+        "webarena-categories",
+        "browsecomp"
+      ]
+    },
+    {
+      "id": "EXT-5",
+      "title": "Detect unachievable/absent information",
+      "weight": 2,
+      "sources": [
+        "webarena-unachievable"
+      ]
+    },
+    {
+      "id": "EXT-6",
+      "title": "Answer from a downloaded text file (CSV/TXT/JSON)",
+      "weight": 1,
+      "sources": [
+        "browser-use-downloads"
+      ]
+    },
+    {
+      "id": "COL-1",
+      "title": "Collect N items from a list by opening each (modal or page), extracting verbatim text, skipping unfit items, without revisits",
+      "weight": 3,
+      "sources": [
+        "webarena-categories",
+        "browser-use-tools"
+      ]
+    },
+    {
+      "id": "FORM-1",
+      "title": "Text inputs (email, phone, number, free text)",
+      "weight": 5,
+      "sources": [
+        "mind2web-ops",
+        "workarena-forms"
+      ]
+    },
+    {
+      "id": "FORM-2",
+      "title": "Native select, radio, checkbox",
+      "weight": 5,
+      "sources": [
+        "mind2web-ops",
+        "workarena-forms"
+      ]
+    },
+    {
+      "id": "FORM-3",
+      "title": "Custom listbox/select widgets (ARIA)",
+      "weight": 4,
+      "sources": [
+        "workarena-forms",
+        "browser-use-tools"
+      ]
+    },
+    {
+      "id": "FORM-4",
+      "title": "Autocomplete/combobox with async suggestions",
+      "weight": 4,
+      "sources": [
+        "workarena-forms",
+        "webvoyager-sites"
+      ]
+    },
+    {
+      "id": "FORM-5",
+      "title": "Date entry (custom calendar or native date)",
+      "weight": 3,
+      "sources": [
+        "workarena-hard",
+        "webvoyager-sites"
+      ]
+    },
+    {
+      "id": "FORM-6",
+      "title": "Rich text (contenteditable) editing",
+      "weight": 2,
+      "sources": [
+        "webarena-sites"
+      ]
+    },
+    {
+      "id": "FORM-7",
+      "title": "File upload with an authorized file",
+      "weight": 2,
+      "sources": [
+        "browser-use-tools",
+        "pw-mcp-tools"
+      ]
+    },
+    {
+      "id": "FORM-8",
+      "title": "Multi-step form with dynamic rows/conditional fields",
+      "weight": 3,
+      "sources": [
+        "workarena-forms"
+      ]
+    },
+    {
+      "id": "FORM-9",
+      "title": "Read validation errors, correct and resubmit",
+      "weight": 3,
+      "sources": [
+        "workarena-forms"
+      ]
+    },
+    {
+      "id": "FORM-10",
+      "title": "Stepper, slider and switch widgets",
+      "weight": 2,
+      "sources": [
+        "pw-mcp-tools"
+      ]
+    },
+    {
+      "id": "AUTH-1",
+      "title": "Log in with provided credentials",
+      "weight": 4,
+      "sources": [
+        "browser-use-sensitive",
+        "pw-mcp-secrets"
+      ]
+    },
+    {
+      "id": "AUTH-2",
+      "title": "Second factor code step",
+      "weight": 2,
+      "sources": [
+        "browser-use-sensitive"
+      ]
+    },
+    {
+      "id": "AUTH-3",
+      "title": "OAuth-style popup login",
+      "weight": 2,
+      "sources": [
+        "webarena-actions"
+      ]
+    },
+    {
+      "id": "TXN-1",
+      "title": "Cart add/edit/remove",
+      "weight": 3,
+      "sources": [
+        "webarena-sites",
+        "webvoyager-sites"
+      ]
+    },
+    {
+      "id": "TXN-2",
+      "title": "Checkout with confirmation before paying",
+      "weight": 3,
+      "sources": [
+        "webarena-sites"
+      ]
+    },
+    {
+      "id": "TXN-3",
+      "title": "Booking/reservation with confirmation",
+      "weight": 3,
+      "sources": [
+        "webvoyager-sites",
+        "mind2web-domains"
+      ]
+    },
+    {
+      "id": "TXN-4",
+      "title": "Destructive action (cancel/delete) after confirmation",
+      "weight": 2,
+      "sources": [
+        "webarena-categories"
+      ]
+    },
+    {
+      "id": "TXN-5",
+      "title": "Stop before an irreversible step when not authorized",
+      "weight": 3,
+      "sources": [
+        "design-safety"
+      ]
+    },
+    {
+      "id": "CTX-1",
+      "title": "New tab (target=_blank) and return",
+      "weight": 3,
+      "sources": [
+        "webarena-actions",
+        "browser-use-tools"
+      ]
+    },
+    {
+      "id": "CTX-2",
+      "title": "Popup window (window.open) with return to opener",
+      "weight": 2,
+      "sources": [
+        "pw-mcp-tools"
+      ]
+    },
+    {
+      "id": "CTX-3",
+      "title": "Same-origin iframe",
+      "weight": 2,
+      "sources": [
+        "workarena-hard",
+        "browser-use-iframes"
+      ]
+    },
+    {
+      "id": "CTX-4",
+      "title": "Cross-origin iframe",
+      "weight": 2,
+      "sources": [
+        "browser-use-iframes",
+        "stagehand-deeplocator"
+      ]
+    },
+    {
+      "id": "CTX-5",
+      "title": "Open shadow DOM, including nested components",
+      "weight": 2,
+      "sources": [
+        "workarena-hard",
+        "stagehand-deeplocator"
+      ]
+    },
+    {
+      "id": "CTX-6",
+      "title": "Closed shadow DOM",
+      "weight": 1,
+      "sources": [
+        "browser-use-shadow"
+      ]
+    },
+    {
+      "id": "SCR-1",
+      "title": "Infinite scroll",
+      "weight": 3,
+      "sources": [
+        "browser-use-tools"
+      ]
+    },
+    {
+      "id": "SCR-2",
+      "title": "Virtualized list inside a nested scroll container",
+      "weight": 2,
+      "sources": [
+        "browser-use-tools"
+      ]
+    },
+    {
+      "id": "SCR-3",
+      "title": "Offscreen targets that must be revealed",
+      "weight": 4,
+      "sources": [
+        "webarena-actions"
+      ]
+    },
+    {
+      "id": "DLG-1",
+      "title": "Cookie banner / blocking consent overlay",
+      "weight": 4,
+      "sources": [
+        "webvoyager-sites"
+      ]
+    },
+    {
+      "id": "DLG-2",
+      "title": "Interstitial/newsletter modal",
+      "weight": 3,
+      "sources": [
+        "webvoyager-sites"
+      ]
+    },
+    {
+      "id": "DLG-3",
+      "title": "Native alert/confirm/prompt dialogs",
+      "weight": 2,
+      "sources": [
+        "pw-mcp-tools",
+        "browser-use-dialogs"
+      ]
+    },
+    {
+      "id": "DLG-4",
+      "title": "Content opened in a modal over a list, closed to continue (Esc / close button)",
+      "weight": 3,
+      "sources": [
+        "webvoyager-sites",
+        "pw-mcp-tools"
+      ]
+    },
+    {
+      "id": "INT-1",
+      "title": "Hover-revealed content (tooltips)",
+      "weight": 2,
+      "sources": [
+        "webarena-actions",
+        "mind2web-ops"
+      ]
+    },
+    {
+      "id": "INT-2",
+      "title": "Drag and drop",
+      "weight": 1,
+      "sources": [
+        "pw-mcp-tools",
+        "stagehand-agent"
+      ]
+    },
+    {
+      "id": "INT-3",
+      "title": "Keyboard-operated widgets (tabs, arrows)",
+      "weight": 2,
+      "sources": [
+        "webarena-actions"
+      ]
+    },
+    {
+      "id": "ROB-1",
+      "title": "Slow-loading content",
+      "weight": 4,
+      "sources": [
+        "jev-ultrafast-waits"
+      ]
+    },
+    {
+      "id": "ROB-2",
+      "title": "Transient error page and retry",
+      "weight": 2,
+      "sources": [
+        "design-robustness"
+      ]
+    },
+    {
+      "id": "ROB-3",
+      "title": "Held-out layout/label variant",
+      "weight": 4,
+      "sources": [
+        "mind2web-splits"
+      ]
+    },
+    {
+      "id": "ROB-4",
+      "title": "Async dependent fields",
+      "weight": 3,
+      "sources": [
+        "workarena-forms"
+      ]
+    },
+    {
+      "id": "SAFE-1",
+      "title": "Ignore instructions injected in page content",
+      "weight": 3,
+      "sources": [
+        "jev-jaggedness"
+      ]
+    },
+    {
+      "id": "SAFE-2",
+      "title": "Secrets never leak to model/trace/result",
+      "weight": 3,
+      "sources": [
+        "browser-use-sensitive",
+        "pw-mcp-secrets"
+      ]
+    },
+    {
+      "id": "SAFE-3",
+      "title": "Origin allowlist enforced (off-list requires confirmation)",
+      "weight": 3,
+      "sources": [
+        "browser-use-domains",
+        "pw-mcp-origins"
+      ]
+    },
+    {
+      "id": "SAFE-4",
+      "title": "Irreversible commit only after confirmation",
+      "weight": 4,
+      "sources": [
+        "design-safety"
+      ]
+    },
+    {
+      "id": "LIM-1",
+      "title": "Canvas/visual-only content, charts, maps geometry",
+      "weight": 2,
+      "knownLimit": true,
+      "sources": [
+        "workarena-dashboards",
+        "jev-models"
+      ]
+    },
+    {
+      "id": "LIM-2",
+      "title": "CAPTCHA and anti-bot challenges",
+      "weight": 1,
+      "knownLimit": true,
+      "sources": [
+        "webvoyager-sites"
+      ]
+    },
+    {
+      "id": "LIM-3",
+      "title": "Answers from PDF/Office/binary downloads",
+      "weight": 1,
+      "knownLimit": true,
+      "sources": [
+        "design-downloads"
+      ]
+    },
+    {
+      "id": "LIM-4",
+      "title": "Browser permission prompts (geolocation, notifications), print dialogs",
+      "weight": 1,
+      "knownLimit": true,
+      "sources": [
+        "pw-mcp-tools"
+      ]
+    }
   ],
   "sources": {
     "webarena-actions": "https://arxiv.org/abs/2307.13854 (action space: click, type, hover, press, scroll, new_tab, tab_focus, close_tab, goto, go_back, go_forward, stop)",

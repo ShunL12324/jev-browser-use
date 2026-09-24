@@ -104,5 +104,9 @@
 
   {"id": "complex_forms.application", "site": "complex-forms", "capabilities": ["FORM-1", "FORM-2", "FORM-3", "FORM-5", "FORM-7", "FORM-8", "ROB-4", "SCR-3"],
    "goal": "Complete and submit this job application using the supplied details and the supplied résumé PDF. The requested target role is {{role}}. Include all work experiences and education records. Confirm the final submission.",
-   "inputsFrom": "complex-forms", "heldOutStrength": "css_only", "irreversible": "confirm", "oracle": {"kind": "http"}}
+   "inputsFrom": "complex-forms", "heldOutStrength": "css_only", "irreversible": "confirm", "oracle": {"kind": "http"}},
+
+  {"id": "feed.collect_text_posts", "site": "feed", "capabilities": ["COL-1", "DLG-2", "DLG-4", "SCR-1", "NAV-2"],
+   "goal": "On Driftnote, search for \"{{query}}\" and collect {{count}} text posts (skip video posts). For each post return its title, author and full post text as shown in the post.",
+   "collect": {"count": "{{count}}", "item": "text post (not a video) about {{query}}"}, "oracle": {"kind": "items"}}
 ]

@@ -26,7 +26,7 @@ export function createRunner({ name = 'mechanical' } = {}) {
         }
         const out = await solver({ page, context: browser.context, view, ctx: helpers })
         const pageState = ctx.readPage ? await ctx.readPage(browser.context.pages().at(-1)) : null
-        return { status: out.status ?? 'done', answer: out.answer, finalUrl: page.url(), handoffs, pageState, metrics: { agentMs: performance.now() - started, jevRequests: 0, llmRequests: 0, handoffs: handoffs.length } }
+        return { status: out.status ?? 'done', answer: out.answer, items: out.items, finalUrl: page.url(), handoffs, pageState, metrics: { agentMs: performance.now() - started, jevRequests: 0, llmRequests: 0, handoffs: handoffs.length } }
       } catch (error) {
         return { status: 'error', error: error.message.split('\n')[0], handoffs, metrics: { agentMs: performance.now() - started } }
       } finally { await browser.close() }

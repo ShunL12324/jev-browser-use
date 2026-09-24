@@ -261,6 +261,35 @@ export const solvers = {
     return {}
   },
 
+  // ---- feed (masonry + modal posts) -----------------------------------------
+  async 'feed.collect_text_posts'({ page, view }) {
+    const [, query, count] = view.goal.match(/search for "(.+?)" and collect (\d+) text posts/)
+    await page.goto(view.startUrl)
+    await page.getByRole('searchbox').or(page.locator('form[role=search] input')).first().fill(query)
+    await page.locator('form[role=search] button').click()
+    await page.waitForTimeout(400)
+    const items = [], seen = new Set(), dialog = page.locator('#post')
+    const dismissNudge = async () => { const later = page.locator('#later'); if (await later.isVisible().catch(() => false)) await later.click() }
+    for (let i = 0; items.length < Number(count); i++) {
+      const cards = page.locator('#feed .card')
+      if (i >= await cards.count()) { await page.locator('#sentinel').scrollIntoViewIfNeeded(); await page.waitForTimeout(500); if (i >= await cards.count()) break }
+      const card = cards.nth(i), id = await card.getAttribute('data-id')
+      if (seen.has(id)) continue
+      seen.add(id)
+      await card.locator('.title, h3 button').click()
+      await dialog.locator('#post-title').waitFor()
+      if (!await dialog.locator('video').count()) {
+        items.push({ title: await dialog.locator('#post-title').innerText(), author: (await dialog.locator('.author').innerText()).replace(/^@/, ''), date: await dialog.locator('time').getAttribute('datetime'), url: page.url(), text: await dialog.locator('article').innerText() })
+      }
+      await page.keyboard.press('Escape')
+      await dialog.locator('#post-title').waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
+      await page.waitForTimeout(150); await dismissNudge()
+      if (await dialog.locator('#post-title').isVisible().catch(() => false)) await dialog.getByRole('button', { name: /Close|Dismiss/ }).click()
+      await page.waitForTimeout(450); await dismissNudge()
+    }
+    return { items }
+  },
+
   // ---- complex-forms (React) -------------------------------------------------
   async 'complex_forms.application'({ page, view, ctx }) {
     const v = k => inputVal(view, k), fill = (label, value, scope = page) => scope.getByLabel(label, { exact: true }).fill(String(value)), select = (label, value, scope = page) => scope.getByLabel(label, { exact: true }).selectOption(value)
