@@ -418,3 +418,28 @@ test('DONE is not accepted while filled inputs are unsubmitted; the submit-like 
   // The DONE head of cycle 2 is overridden by the (default) CLICK target: Search.
   assert.ok(f.s.executed.some(e => e.op === 'click' && e.ref === search.ref), JSON.stringify(f.s.executed)); assert.equal(result.status, 'done')
 })
+test('a target refused twice on a document is excluded; the loop hands off instead of re-requesting it', async () => {
+  n = 0
+  const box = el('Search'), f = fake([box]), call = f.call
+  f.call = async (name, args) => args.action === 'agent_execute' ? { ok: true, execution: 'not_sent', code: 'UNREACHABLE', coveredBy: 'textarea ""' } : call(name, args)
+  let asks = 0
+  const offered = []
+  const { result } = await run(task({ goal: 'Search for "JEV"', budgets: { maxSteps: 20, maxJevRequests: 20, timeoutMs: 10000 } }), f, async p => { asks++; offered.push(!!p.questions.target_TYPE_TEXT?.criteria[box.ref]); return answer({ op: () => p.questions.target_TYPE_TEXT ? ['TYPE_TEXT', box.ref] : ['WAIT'], text: 'JEV' })(p) }, async () => ({}))
+  assert.deepEqual(offered.slice(0, 3), [true, true, false]); assert.ok(asks < 8, String(asks)); assert.equal(result.status, 'blocked')
+})
+test('ledger lock contention waits (bounded) instead of failing; a stuck lock still fails closed', async () => {
+  const { reserveRequest } = await import('../packages/bridge/src/jev/budget.mjs')
+  const { mkdtempSync, mkdirSync, rmSync } = await import('node:fs'), { tmpdir } = await import('node:os'), { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'ledger-lock-')), path = join(dir, 'l.json')
+  try {
+    // Another process holds the lock for 300 ms; this reservation waits for it.
+    const { spawn } = await import('node:child_process')
+    const holder = spawn(process.execPath, ['-e', `require('fs').mkdirSync(${JSON.stringify(path + '.lock')}); setTimeout(() => require('fs').rmSync(${JSON.stringify(path + '.lock')}, { recursive: true }), 300)`])
+    while (!(await import('node:fs')).existsSync(path + '.lock')) await new Promise(r => setTimeout(r, 10))
+    assert.equal(reserveRequest(path, {}, 10000), 1)
+    await new Promise(r => holder.on('exit', r))
+    mkdirSync(path + '.lock')
+    process.env.JEV_LEDGER_LOCK_WAIT_MS = '50'
+    assert.throws(() => reserveRequest(path, {}, 10000), { code: 'BUDGET_LOCKED' })
+  } finally { delete process.env.JEV_LEDGER_LOCK_WAIT_MS; rmSync(dir, { recursive: true, force: true }) }
+})

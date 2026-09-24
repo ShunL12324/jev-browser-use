@@ -26,7 +26,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
   const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
   let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false, pendingInputs = false
-  const taskTabs = new Map(), seenValues = new Map()
+  const taskTabs = new Map(), seenValues = new Map(), refused = new Map()
   const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }
   // handoffs: every caller round trip with wall-clock times (graders check that
   // an approved confirm precedes each commit).
@@ -49,6 +49,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     page.tabs = taskTabs.size > 1 ? [...taskTabs.values()].map(t => ({ id: t.id, title: t.title ?? '', url: t.url ?? '', current: t.id === tabId })) : []
     // Secret plaintext typed into a non-password field must not re-enter state.
     for (const secret of secrets) { page.text = page.text.split(secret).join('‹secret›'); for (const e of page.elements) if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›') }
+    for (const e of page.elements) if ((refused.get(`${page.documentId}|${e.ref}`) ?? 0) >= 2) e.unreachable = true
     // After secret redaction: remembered values never include secrets.
     for (const v of pageValues(page.text)) { seenValues.delete(v); seenValues.set(v, { text: v, source: page.title }) }
     emit({ event: 'observation', documentId: page.documentId, build: page.build, url: page.url, elements: page.elements.length, omitted: page.omitted, textChars: page.text.length })
@@ -120,6 +121,12 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       m.stale++; emit({ event: 'outcome', execution: 'not_sent', code: res.code, coveredBy: res.coveredBy })
       // Tell the model why nothing happened (e.g. what covers the target).
       if (res.coveredBy) history.push({ doc: page.documentId, op, ref: el?.ref, name: el?.name, valueId, notSent: `not executed: covered by ${res.coveredBy}` })
+      // Breaker: a target refused twice on this document is no longer offered.
+      if (el && ['UNREACHABLE', 'WRONG_KIND', 'BAD_VALUE'].includes(res.code)) {
+        const key = `${page.documentId}|${el.ref}`, count = (refused.get(key) ?? 0) + 1
+        refused.set(key, count); if (count >= 2) emit({ event: 'target_excluded', ref: el.ref, name: el.name, code: res.code })
+      }
+      stalls++
       await observe(); return { sent: false, code: res.code }
     }
     m.steps++
@@ -146,14 +153,14 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     // The executor compares on the live element (secrets included); the later
     // observation must also agree where it can (not for redacted secrets).
     const secretInput = !!task.inputs[valueId]?.secret
-    const postcondition = !valueId ? undefined : page.documentId !== before.documentId ? 'unknown' : res.applied === false ? 'unmet'
+    const postcondition = !valueId ? undefined : page.documentId !== before.documentId ? 'unknown' : res.applied === false ? 'unmet' : res.redirectedTo ? 'met'
       : op === 'type' ? (secretInput ? (res.applied ? 'met' : 'unknown') : after?.value === args.text ? 'met' : 'unmet') : op === 'select' ? (after?.value === args.value ? 'met' : 'unmet')
       : op === 'check' ? (after?.checked === args.checked ? 'met' : 'unmet') : op === 'upload' ? (after?.files ? 'met' : 'unmet')
       // A chosen option usually closes its popup; absence or a selected state is success.
       : op === 'click' ? (!after || after.selected === true || after.checked === true ? 'met' : 'unmet') : 'unknown'
     const confirmDenied = res.confirmDenied ?? settled.confirmDenied
     // Refs are per document: every record carries the document it acted on.
-    const entry = { doc: before.documentId, op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(newText ? { newText } : {}), ...(confirmDenied !== undefined ? { confirmDenied } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
+    const entry = { doc: before.documentId, op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(newText ? { newText } : {}), ...(confirmDenied !== undefined ? { confirmDenied } : {}), ...(res.redirectedTo ? { typedInto: `covering field ${res.redirectedTo}` } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
     // Inputs changed since the last submit-like step (Enter, a submit/search
     // style control, or a navigation) are "pending": DONE is not accepted yet.

@@ -21,7 +21,7 @@ const field = e => `"${e.name}"` + (e.context?.length ? ` in ${e.context.join(' 
 
 const compact = e => ({ id: e.ref, role: e.role, name: e.name, ...(e.value ? { value: String(e.value).slice(0, 120) } : {}), ...(e.context?.length ? { context: e.context.join(' › ') } : {}), ...(e.item ? { item: e.item } : {}),
   ...(e.checked !== null && e.checked !== undefined ? { checked: e.checked } : {}), ...(e.expanded !== null && e.expanded !== undefined ? { expanded: e.expanded } : {}), ...(e.selected ? { selected: true } : {}),
-  ...(e.disabled ? { disabled: true } : {}), ...(e.required ? { required: true, valid: e.valid } : {}), ...(!e.inView ? { offscreen: true } : {}), ...(e.tag === 'select' ? { options: e.options.length > 40 ? `${e.options.length} options` : e.options.map(o => o.label) } : {}), ...(e.inputType === 'file' ? { files: e.files ?? 0 } : {}) })
+  ...(e.disabled ? { disabled: true } : {}), ...(e.unreachable ? { unreachable: 'refused twice (covered or unusable); not offered' } : {}), ...(e.required ? { required: true, valid: e.valid } : {}), ...(!e.inView ? { offscreen: true } : {}), ...(e.tag === 'select' ? { options: e.options.length > 40 ? `${e.options.length} options` : e.options.map(o => o.label) } : {}), ...(e.inputType === 'file' ? { files: e.files ?? 0 } : {}) })
 
 export function build(page, task, history, seen = []) {
   // Refs are per document: only records from this document refer to these elements.
@@ -77,7 +77,7 @@ export function build(page, task, history, seen = []) {
   // Several goal-specified fields are then filled in one cycle.
   const claimed = new Set(Object.values(binds).flatMap(b => Object.keys(b.candidates)))
   const goalSpanList = goalOnly.length ? goalOnly : goalSpans(task.goal), fields = {}
-  const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && e.inView && !used.has(e.ref) && !claimed.has(e.ref) && !failed.has(`field:${page.documentId.slice(0, 8)}:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
+  const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && !e.unreachable && e.inView && !used.has(e.ref) && !claimed.has(e.ref) && !failed.has(`field:${page.documentId.slice(0, 8)}:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
   for (const e of fillable.slice(0, 12)) {
     const choices = e.tag === 'select' ? Object.fromEntries(e.options.filter(o => !o.disabled && o.value !== e.value && o.value !== '').slice(0, 40).map((o, i) => [`o${i + 1}`, { label: o.label, value: o.value }]))
       : e.inputType === 'checkbox' || e.inputType === 'radio' ? { set: { label: 'checked', checked: true } } : Object.fromEntries(goalSpanList.filter(t => t !== e.value).map((t, i) => [`t${i + 1}`, { label: t, text: t }]))

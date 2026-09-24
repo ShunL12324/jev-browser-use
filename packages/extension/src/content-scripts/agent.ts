@@ -97,10 +97,12 @@ function observe(limit: number) {
 const reject = (code: string) => ({ ok: true as const, execution: 'not_sent', code })
 // Returns null when the center is hit-testable, else a short description of
 // what covers it (reported to the model instead of retrying blindly).
+let lastHit: Element | null = null
 function occluder(el: Element): string | null {
   let r = el.getBoundingClientRect()
   if (!(r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth)) { el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); r = el.getBoundingClientRect() }
   const root = el.getRootNode() as Document | ShadowRoot, hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+  lastHit = hit
   const labels = Array.from((el as HTMLInputElement).labels ?? [])
   if (hit && (hit === el || el.contains(hit) || labels.some(l => l === hit || l.contains(hit)))) return null
   const cover = hit?.closest('[role="dialog"],dialog,[role="listbox"],[role="menu"],[aria-modal="true"]') ?? hit
@@ -137,7 +139,7 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
   // target guard below still protects the element itself.
   if (q.documentId !== documentId || new URL(q.url as string).origin !== location.origin) return reject('PAGE_CHANGED')
   const op = q.op as string
-  let el: HTMLElement | null = null
+  let el: HTMLElement | null = null, redirected: string | null = null
   if (q.ref) {
     el = findByRef(q.ref as string) as HTMLElement | null
     if (!el?.isConnected) return reject('STALE_REF')
@@ -145,7 +147,11 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
     const f = facts(el)
     if (f.disabled || f.inert || f.modalBlocked || !f.visible || (op === 'type' && !editable(el))) return reject('UNREACHABLE')
     const covered = op === 'hover' ? null : occluder(el)
-    if (covered) return { ...reject('UNREACHABLE'), coveredBy: covered }
+    // Typing into a field covered by another editable element (a search box
+    // under a transparent textarea overlay): type where a user's click lands.
+    const hit = lastHit as HTMLElement | null
+    if (covered && op === 'type' && hit && editable(hit) && !(hit as HTMLInputElement).readOnly && facts(hit).visible && !facts(hit).disabled) { el = hit; redirected = covered }
+    else if (covered) return { ...reject('UNREACHABLE'), coveredBy: covered }
   }
   // Navigation API reports same-tick cross-document navigations. A native
   // form submission is detected exactly: a submit event that no handler
@@ -190,7 +196,7 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
   const target = el as HTMLInputElement | null
   const applied = op === 'type' ? (target!.isContentEditable ? target!.innerText.trim() === String(q.text).trim() : target!.value === q.text)
     : op === 'select' ? target!.value === q.value : op === 'check' ? target!.checked === q.checked : op === 'upload' ? !!target!.files?.length : undefined
-  return { ok: true as const, execution: 'returned', crossDocument: crossDocument || formNavigates, ...(applied !== undefined ? { applied } : {}) }
+  return { ok: true as const, execution: 'returned', crossDocument: crossDocument || formNavigates, ...(applied !== undefined ? { applied } : {}), ...(redirected ? { redirectedTo: redirected } : {}) }
 }
 // Settle state, answered immediately: the bridge does all waiting with its
 // own (unthrottled) timers and polls this. A MutationObserver counter tells

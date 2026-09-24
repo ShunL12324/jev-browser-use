@@ -15,6 +15,7 @@ import { prepareTask } from '../../packages/bridge/dist/agent/task.mjs'
 
 const server = createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'text/html' })
+  if (req.url === '/overlay') return res.end('<main><div style="position:relative"><input aria-label="Search" id="q"><textarea aria-label="Search box" style="position:absolute;left:0;top:0;width:200px;height:24px;opacity:0.01" oninput="document.getElementById(\'q\').value=this.value"></textarea></div></main>')
   if (req.url === '/help') return res.end('<main><h1>Help centre</h1><p>Activation code: 4411</p></main>')
   res.end('<main><h1>Settings</h1><a href="/help" target="_blank">Help centre</a></main>')
 }).listen(0, '127.0.0.1')
@@ -52,5 +53,15 @@ try {
   await peerCall('browser_navigate', { tabId: own, url: origin + '/' })
   assert.ok((await peerCall('browser_view', { tabId: own })).content?.includes('Settings'))
   assert.equal((await browser.tool('browser_view', { tabId: own }).catch(e => ({ error: e.code }))).error, 'TAB_NOT_OWNED')
+  // A search box covered by a transparent textarea: typing lands in the overlay.
+  const ovEvents = []
+  const ov = await runTask(prepareTask({ goal: 'Search for "JEV"', startUrl: origin + '/overlay', allowedOrigins: [origin] }), { call: (n, a) => browser.call(n, a), handoff: async () => ({}), emit: e => ovEvents.push(e), ask: async ({ state, questions }) => {
+    const box = state.elements.find(e => e.name === 'Search'), typed = state.recentActions.length
+    const answers = { operation: pick(questions.operation, typed ? 'DONE' : 'TYPE_TEXT') }
+    for (const [id, q] of Object.entries(questions)) if (id !== 'operation') answers[id] = pick(q, id === 'target_TYPE_TEXT' ? box.id : id === 'text_value' ? Object.keys(q.criteria).find(k => q.criteria[k] === 'JEV') : Object.keys(q.criteria).includes('keep') ? 'keep' : Object.keys(q.criteria)[0])
+    return { answers, usage: { input_tokens: 0 } }
+  } })
+  const view = (await browser.tool('browser_view', { tabId: ov.tabId })).content, typedValue = /"Search box" \[e\d+\] = "JEV"/.test(view) ? 'JEV' : view
+  assert.equal(ov.status, 'done'); assert.equal(typedValue, 'JEV', JSON.stringify(ovEvents.filter(e => ['execute', 'outcome', 'decision'].includes(e.event))))
   console.log(JSON.stringify({ event: 'task_tabs_pass', adoptedTab: adopted.tabId, settleEnv: env, liveJev: false }))
 } finally { await peer?.close(); await browser.close(); server.close() }

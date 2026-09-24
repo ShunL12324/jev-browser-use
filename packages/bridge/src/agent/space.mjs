@@ -3,7 +3,7 @@
 // Only observed element facts are used; there is no site knowledge here.
 
 export const norm = s => String(s ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
-const usable = e => !e.disabled && !e.modalBlocked
+const usable = e => !e.disabled && !e.modalBlocked && !e.unreachable
 const MAX_TARGETS = 254
 
 // Operation id → Jev-facing description. Only operations with targets (or

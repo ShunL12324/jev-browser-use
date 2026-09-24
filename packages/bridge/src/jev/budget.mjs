@@ -11,7 +11,15 @@ export function withLedger(path, update, requestLimit = REQUEST_LIMIT) {
   if (!Number.isInteger(requestLimit) || requestLimit < 1 || requestLimit > REQUEST_LIMIT && ![240, 10000].includes(requestLimit)) throw new RunError('BUDGET_INVALID', 'Invalid explicit request limit.')
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
   const lock = `${path}.lock`
-  try { mkdirSync(lock, { mode: 0o700 }) } catch { throw new RunError('BUDGET_LOCKED', 'Budget ledger is locked; no request sent.') }
+  // Concurrent sessions wait for the lock (bounded); a lock held longer than
+  // that (e.g. left by a crash) still fails closed for an operator to inspect.
+  const deadline = Date.now() + Number(process.env.JEV_LEDGER_LOCK_WAIT_MS ?? 10000)
+  for (;;) {
+    try { mkdirSync(lock, { mode: 0o700 }); break } catch (e) {
+      if (e.code !== 'EEXIST' || Date.now() >= deadline) throw new RunError('BUDGET_LOCKED', 'Budget ledger is locked; no request sent.')
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15 + Math.random() * 20)
+    }
+  }
   try {
     let ledger
     try { ledger = JSON.parse(readFileSync(path, 'utf8')) } catch (e) {
