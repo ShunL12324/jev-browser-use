@@ -92,7 +92,7 @@ test('session secrets remain redacted in later task observations and collected d
   const result = await runTask({ ...task, kind: 'navigate', collect: undefined }, {
     record,
     call: async (name, args) => name === 'tabs' ? { tabId: 3 } : args.action === 'agent_observe'
-      ? { documentId: 'd1', url: origin + '/', title: 'Page', text: 'private-code', detail: { title: 'private-code', text: 'private-code', url: origin + '/' },
+      ? { agentProtocol: 3, documentId: 'd1', url: origin + '/', title: 'Page', text: 'private-code', detail: { title: 'private-code', text: 'private-code', url: origin + '/' },
         scroll: { y: 0, height: 800, viewport: 800 }, marker: 'm', elements: [], omitted: 0 } : {},
     ask: async p => { payload = p; return { answers: { operation: choice(p.questions.operation, 'DONE') }, usage: { input_tokens: 1 } } },
     handoff: async () => ({})

@@ -104,11 +104,17 @@ export function irreversible(e, page) {
   if (GENERIC.test(e.name) && finalStep && (e.submit || e.dialog || e.formMethod === 'post' || e.tag === 'button')) return 'generic_final_step'
   return null
 }
-export function tier(op, e, page) {
+export function tier(op, e, page, context = {}) {
   if (['SCROLL_DOWN', 'SCROLL_UP', 'WAIT', 'SWITCH_TAB', 'CLOSE_TAB', 'CLOSE_DIALOG'].includes(op)) return 'R0'
   if (['TYPE_TEXT', 'SELECT', 'BIND'].includes(op)) return 'R1'
   if (op === 'GO_BACK') return 'R2'
   if (irreversible(e, page)) return 'R3'
+  // During collection, a titled list card is an entry point to reading its
+  // detail. The target must be the card itself, outside forms and dialogs;
+  // shorter row actions (Cancel, Delete, etc.) retain their normal tier.
+  if (context.collect && op === 'CLICK' && e?.item && e.name?.length >= 12 && e.item.replace(/^[^\p{L}\p{N}]+/u, '').startsWith(e.name)
+    && (e.role === 'button' || e.tag === 'button') && !e.form && !e.submit && !e.dialog && !e.editable && !e.payment
+    && !STRONG.test(e.name) && !GENERIC.test(e.name)) return 'R0'
   if (op === 'PRESS_ENTER') return e?.form && irreversible(page.elements.find(x => x.submit && x.form === e.form) ?? { ...e, submit: true, name: '', editable: false }, page) ? 'R3' : 'R2'
   // Dismissing an overlay (close / no thanks / not now) changes no data.
   if (/^(close|dismiss|no,? thanks|not now|maybe later|skip|×|✕|x)$/i.test(e.name.trim())) return 'R0'

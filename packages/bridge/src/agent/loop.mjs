@@ -419,7 +419,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       const pOp = opAnswer.probabilities[op], p = Math.min(pOp, head ? head.probabilities[id] : 1)
       const target = id ? built.targets[op][id] : null
       el = target && page.elements.find(e => e.ref === target.ref)
-      const level = op === 'DONE' || op === 'BLOCKED' ? 'R2' : tier(op, el, page)
+      const level = op === 'DONE' || op === 'BLOCKED' ? 'R2' : tier(op, el, page, { collect: task.kind === 'collect' })
       m.decisions[level] = (m.decisions[level] ?? 0) + 1
       const repeatKey = JSON.stringify([page.marker, op, id])
       repeats.set(repeatKey, (repeats.get(repeatKey) ?? 0) + 1)
@@ -467,7 +467,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       }
       // Or a lower-risk (R0/R1) click the model rated nearly as high, e.g. a
       // suggestion option instead of a Search submit: reversible, once.
-      const alt = why && why !== 'no_progress' && ['R2', 'R3'].includes(level) && !history.at(-1)?.fallback && joints.map(([k, jp]) => { const [o, t] = k.split(/:(.*)/s); const tg = t && built.targets[o]?.[t], e2 = tg && page.elements.find(x => x.ref === tg.ref); return { o, t, jp, e2, lv: o === 'CLICK' && e2 ? tier(o, e2, page) : null } }).find(c => c.e2 && ['R0', 'R1'].includes(c.lv) && c.jp >= 0.3)
+      const alt = why && why !== 'no_progress' && ['R2', 'R3'].includes(level) && !history.at(-1)?.fallback && joints.map(([k, jp]) => { const [o, t] = k.split(/:(.*)/s); const tg = t && built.targets[o]?.[t], e2 = tg && page.elements.find(x => x.ref === tg.ref); return { o, t, jp, e2, lv: o === 'CLICK' && e2 ? tier(o, e2, page, { collect: task.kind === 'collect' }) : null } }).find(c => c.e2 && ['R0', 'R1'].includes(c.lv) && c.jp >= 0.3)
       if (alt) {
         emit({ event: 'route', why, op, id, p, level, fallback: `${alt.o}:${alt.t}` })
         await act(alt.o, built.targets[alt.o][alt.t], alt.e2, answers, built); if (history.length) history.at(-1).fallback = true

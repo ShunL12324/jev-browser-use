@@ -23,6 +23,16 @@ test('deterministic tiers follow observed facts', () => {
   assert.equal(tier('CLICK', button('Search', { submit: true }), p), 'R2')
   assert.equal(tier('CLICK', button('Open panel'), p), 'R2')
 })
+test('collect can open a titled list card while row actions keep their normal risk', () => {
+  const card = button('Trail etiquette I learned', { item: 'Trail etiquette I learned kit.shutter · 564 hearts' })
+  const rowAction = button('Cancel reservation', { item: 'Trail etiquette I learned Cancel reservation' })
+  const formCard = button('Trail etiquette I learned', { item: card.item, form: 'f1' })
+  const p = page([card, rowAction, formCard])
+  assert.equal(tier('CLICK', card, p), 'R2')
+  assert.equal(tier('CLICK', card, p, { collect: true }), 'R0')
+  assert.equal(tier('CLICK', rowAction, p, { collect: true }), 'R2')
+  assert.equal(tier('CLICK', formCard, p, { collect: true }), 'R2')
+})
 test('irreversible: strong words need a commit signal; purchase words need a final step', () => {
   const next = button('Continue')
   assert.equal(irreversible(button('Confirm address'), page([next])), null)
