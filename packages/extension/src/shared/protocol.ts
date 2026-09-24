@@ -216,7 +216,7 @@ export interface ScrollResult {
 }
 
 export type TabsParams =
-  | { action: 'list'; all?: boolean }
+  | { action: 'list'; all?: boolean; agentOnly?: boolean }
   | { action: 'switch'; tabId: number }
   | { action: 'new'; url?: string; active?: boolean; dedicated?: boolean }
   | { action: 'close'; tabId: number }

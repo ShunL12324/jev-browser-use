@@ -6,7 +6,7 @@ import type { TabsParams, TabsResult } from '../../shared/protocol'
 
 export async function tabs(_tabId: number, params: TabsParams): Promise<TabsResult> {
   switch (params.action) {
-    case 'list':   return list(params.all)
+    case 'list':   return list(params.all, params.agentOnly)
     case 'switch': return switchTo(params.tabId)
     case 'new':    return params.dedicated ? newAgentTab(params.url) : newTab(params.url)
     case 'close':  return closeTab(params.tabId)
@@ -22,8 +22,9 @@ export async function tabs(_tabId: number, params: TabsParams): Promise<TabsResu
 }
 
 // all: every window, with opener/window ids (the bridge scopes by session).
-async function list(all = false): Promise<TabsResult> {
-  const tabs = await chrome.tabs.query(all ? {} : { currentWindow: true })
+async function list(all = false, agentOnly = false): Promise<TabsResult> {
+  const agent = agentOnly ? await agentTabIds() : null
+  const tabs = (await chrome.tabs.query(all ? {} : { currentWindow: true })).filter(t => !agent || agent.includes(t.id!))
   const active = tabs.find((t) => t.active)
   return {
     ok: true,

@@ -28,6 +28,13 @@ export class TabScope {
     for (const id of tabIds) if (!this.owners.has(id)) this.owners.set(id, session)
     if (tabIds.length && !this.current.has(session)) this.current.set(session, tabIds[0]!)
   }
+  // A reconnecting peer may re-claim only tabs the extension recorded as
+  // agent tabs, never the user's own tabs.
+  async claimRecorded(session: string, tabIds: number[]) {
+    let recorded: number[] = []
+    try { recorded = ((await this.raw.invoke('tabs', { action: 'list', all: true, agentOnly: true })) as { tabs: Tab[] }).tabs.map(t => t.id) } catch { /* extension not connected: claim nothing */ }
+    this.claim(session, tabIds.filter(id => recorded.includes(id)))
+  }
   release(session: string) {
     for (const [id, s] of this.owners) if (s === session) this.owners.delete(id)
     this.current.delete(session)
@@ -101,7 +108,7 @@ export async function startBrowserHost(opts: { port: number }): Promise<BrowserH
     ws.on('message', async data => {
       let f: { kind: string; id?: string; session?: string; tabs?: number[]; tool?: string; params?: unknown; tabId?: number }
       try { f = JSON.parse(String(data)) } catch { return }
-      if (f.kind === 'hello' && typeof f.session === 'string') { peers.set(ws, f.session); scope!.claim(f.session, (f.tabs ?? []).filter(Number.isInteger)); ws.send(JSON.stringify({ kind: 'ready' })); return }
+      if (f.kind === 'hello' && typeof f.session === 'string') { peers.set(ws, f.session); await scope!.claimRecorded(f.session, (f.tabs ?? []).filter(Number.isInteger)); ws.send(JSON.stringify({ kind: 'ready' })); return }
       const s = peers.get(ws)
       if (f.kind !== 'invoke' || !s || !f.id || !f.tool) return
       try { ws.send(JSON.stringify({ kind: 'result', id: f.id, ok: true, result: await scope!.invoke(s, f.tool, f.params, f.tabId) })) }

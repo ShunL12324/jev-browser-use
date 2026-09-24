@@ -465,3 +465,19 @@ test('a validation message ("10 digits") picks the fitting goal span when the mo
   }, async () => { throw Error('no handoff expected') })
   assert.equal(f.s.executed.find(e => e.op === 'type')?.text, '6175550143')
 })
+test('an auto-saving select with no associated submitter does not block DONE', async () => {
+  n = 0
+  const qty = el('Quantity', { tag: 'select', role: 'combobox', editable: false, options: [{ value: '1', label: '1' }, { value: '3', label: '3' }], value: '1' }), checkout = button('Checkout')
+  const f = fake([qty, checkout])
+  let asks = 0
+  const { result } = await run(task({ goal: 'Set quantity to 3' }), f, async p => { asks++; return answer({ op: () => asks === 1 ? ['SELECT', `${qty.ref}:1`] : ['DONE'] })(p) }, async () => { throw Error('no handoff expected') })
+  assert.equal(result.status, 'done'); assert.ok(!f.s.executed.some(e => e.op === 'click'))
+})
+test('auto-Enter is skipped when the field form submit is irreversible', async () => {
+  n = 0
+  const q = el('Search', { form: 'f1', formMethod: 'get' }), buy = button('Buy now', { form: 'f1', submit: true, formMethod: 'get' })
+  const f = fake([q, buy])
+  let asks = 0
+  await run(task({ goal: 'Search for "lamp"' }), f, async p => { asks++; return answer({ op: () => asks === 1 ? ['TYPE_TEXT', q.ref] : ['WAIT'], text: 'lamp' })(p) }, async () => ({}))
+  assert.ok(!f.s.executed.some(e => e.op === 'key'))
+})

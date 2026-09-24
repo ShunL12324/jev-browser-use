@@ -43,7 +43,13 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         break
       } catch (error) {
         // A navigation can detach the content script; retry the read only.
-        if (attempt >= 150 || !['SEND_MESSAGE_FAILED', 'NO_RECEIVER', 'TIMEOUT'].includes(error.code) && !/receiving end|message port|context invalidated/i.test(error.message ?? '')) throw error
+        if (attempt >= 150 || !['SEND_MESSAGE_FAILED', 'NO_RECEIVER', 'TIMEOUT'].includes(error.code) && !/receiving end|message port|context invalidated/i.test(error.message ?? '')) throw new RunError(error.code ?? 'OBSERVE_FAILED', `Page could not be observed: ${error.message ?? error}`)
+        // Before any action, a tab whose content scripts never started is
+        // reloaded (a read-only GET of the start page), at most twice.
+        if (!history.length && m.steps === 0 && (attempt === 20 || attempt === 60)) {
+          emit({ event: 'startup_reload', attempt })
+          await timed('navigationMs', () => call('navigate', { tabId, url: task.startUrl, timeoutMs: 15000 }, signal)).catch(() => {})
+        }
         await delay(100, undefined, { signal })
       }
     }
@@ -165,7 +171,11 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
     // Inputs changed since the last submit-like step (Enter, a submit/search
     // style control, or a navigation) are "pending": DONE is not accepted yet.
-    if (['type', 'select', 'check'].includes(op)) pendingInputs = true
+    // Inputs wait for a submit only when a submit-like control is associated:
+    // in the same form; for typed text outside forms, any formless one.
+    // Selects/checkboxes outside forms usually save on change (no submit).
+    const hasSubmitter = el?.form ? page.elements.some(e => e.form === el.form && submitLike(e)) : op === 'type' && page.elements.some(e => !e.form && submitLike(e))
+    if (['type', 'select', 'check'].includes(op) && (hasSubmitter || postcondition === 'unmet')) pendingInputs = true
     if (op === 'key' || entry.navigated || op === 'click' && submitLike(el)) pendingInputs = false
     stalls = changed || op === 'wait' ? 0 : stalls + 1
     // A click that changed nothing is a failed target, like a refused one.
@@ -185,6 +195,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     if (!now2 || String(now2.formMethod ?? '').toLowerCase() === 'post') return
     const search = searchLike(now2), date = DATE_LIKE.test(el.name) && !now2.form && !page.elements.some(e => e.role === 'option' && e.inView)
     if (!search && !date) return
+    // Enter submits the field's form: same risk rule as its submit control.
+    if (now2.form && irreversible(submitterOf(now2, page), page)) return
     emit({ event: 'auto_commit', ref: el.ref, name: el.name })
     await exec('key', now2, { key: 'Enter' })
   }
@@ -371,7 +383,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       // produced a new document; look again once instead.
       // A filled form whose submit-like control is still on the page is not a
       // finished task: submit it if that is the model's CLICK target, else ask.
-      if (op === 'DONE' && pendingInputs && page.elements.some(e => submitLike(e) && !e.disabled && !e.modalBlocked)) {
+      if (op === 'DONE' && pendingInputs && page.elements.some(e => submitLike(e) && !e.disabled && !e.modalBlocked && (!e.form || history.some(h => h.form === e.form)))) {
         const h = invalid.has('target_CLICK') ? null : answers.target_CLICK, t = h && built.targets.CLICK?.[h.choice], e2 = t && page.elements.find(x => x.ref === t.ref)
         emit({ event: 'route', why: 'done_with_pending_inputs', target: e2?.name })
         pendingInputs = false
