@@ -7,6 +7,7 @@ import { bindCandidates, fits, searchLike, describe, tier, irreversible, GATES, 
 
 const now = () => performance.now()
 export const AGENT_PROTOCOL = 2
+export const OBSERVE_TIMEOUT_MS = Number(process.env.JEV_OBSERVE_TIMEOUT_MS ?? 5000)
 const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
 // Enter in a form submits it: judge it as its submit control (or an unnamed
 // POST/submit stand-in when the form has none).
@@ -34,19 +35,27 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const handoffLog = []
   const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, taskTabs: [...taskTabs.keys()], metrics: m, handoffs: handoffLog, ...extra } }
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
+  // A page read that hangs (content script not answering) is abandoned after
+  // OBSERVE_TIMEOUT_MS and treated like an unreachable page.
+  const observeOnce = () => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Object.assign(new Error('observe timed out'), { code: 'OBSERVE_TIMEOUT' })), OBSERVE_TIMEOUT_MS)
+    s1({ action: 'agent_observe', limit: 160 }, 'observeMs').then(v => { clearTimeout(timer); resolve(v) }, e => { clearTimeout(timer); reject(e) })
+  })
   const observe = async () => {
+    let timeouts = 0
     for (let attempt = 0; ; attempt++) {
       try {
-        page = await s1({ action: 'agent_observe', limit: 160 }, 'observeMs')
+        page = await observeOnce()
         // An older extension answers agent_* requests with something else.
         if (page?.agentProtocol !== AGENT_PROTOCOL) throw new RunError('EXTENSION_OUTDATED', `The loaded Chrome extension does not speak browser_task protocol ${AGENT_PROTOCOL} (got ${page?.agentProtocol ?? 'none'}, build ${page?.build ?? 'unknown'}). Reload the extension from the current build.`)
         break
       } catch (error) {
         // A navigation can detach the content script; retry the read only.
-        if (attempt >= 150 || !['SEND_MESSAGE_FAILED', 'NO_RECEIVER', 'TIMEOUT'].includes(error.code) && !/receiving end|message port|context invalidated/i.test(error.message ?? '')) throw new RunError(error.code ?? 'OBSERVE_FAILED', `Page could not be observed: ${error.message ?? error}`)
+        if (error.code === 'OBSERVE_TIMEOUT' && ++timeouts >= 3) throw new RunError('OBSERVE_TIMEOUT', `The page did not answer ${timeouts} observations of ${OBSERVE_TIMEOUT_MS} ms; nothing was executed after the last returned action.`)
+        if (attempt >= 150 || !['SEND_MESSAGE_FAILED', 'NO_RECEIVER', 'TIMEOUT', 'OBSERVE_TIMEOUT'].includes(error.code) && !/receiving end|message port|context invalidated/i.test(error.message ?? '')) throw new RunError(error.code ?? 'OBSERVE_FAILED', `Page could not be observed: ${error.message ?? error}`)
         // Before any action, a tab whose content scripts never started is
         // reloaded (a read-only GET of the start page), at most twice.
-        if (!history.length && m.steps === 0 && (attempt === 20 || attempt === 60)) {
+        if (!history.length && m.steps === 0 && (error.code === 'OBSERVE_TIMEOUT' ? timeouts <= 2 : attempt === 20 || attempt === 60)) {
           emit({ event: 'startup_reload', attempt })
           await timed('navigationMs', () => call('navigate', { tabId, url: task.startUrl, timeoutMs: 15000 }, signal)).catch(() => {})
         }

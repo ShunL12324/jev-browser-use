@@ -481,3 +481,27 @@ test('auto-Enter is skipped when the field form submit is irreversible', async (
   await run(task({ goal: 'Search for "lamp"' }), f, async p => { asks++; return answer({ op: () => asks === 1 ? ['TYPE_TEXT', q.ref] : ['WAIT'], text: 'lamp' })(p) }, async () => ({}))
   assert.ok(!f.s.executed.some(e => e.op === 'key'))
 })
+test('a hanging first observation times out and triggers the read-only startup reload', async () => {
+  n = 0
+  process.env.JEV_OBSERVE_TIMEOUT_MS = '50'
+  const { runTask: run2 } = await import('../packages/bridge/src/agent/loop.mjs?observe-timeout')
+  delete process.env.JEV_OBSERVE_TIMEOUT_MS
+  const f = fake([button('Go')]), call = f.call
+  let hang = true, navigations = 0
+  f.call = async (name, args) => {
+    if (name === 'navigate' && ++navigations > 1) hang = false
+    if (args.action === 'agent_observe' && hang) return new Promise(() => {})
+    return call(name, args)
+  }
+  const events = []
+  const result = await run2(task(), { call: f.call, ask: answer({ op: () => ['DONE'] }), handoff: async () => ({}), emit: e => events.push(e) })
+  assert.equal(result.status, 'done'); assert.equal(navigations, 2); assert.ok(events.some(e => e.event === 'startup_reload'))
+  // Never answering at all ends with a clear error, not a 300 s hang.
+  process.env.JEV_OBSERVE_TIMEOUT_MS = '30'
+  const { runTask: run3 } = await import('../packages/bridge/src/agent/loop.mjs?observe-timeout-2')
+  delete process.env.JEV_OBSERVE_TIMEOUT_MS
+  const g = fake([button('Go')]), gcall = g.call
+  g.call = async (name, args) => args.action === 'agent_observe' ? new Promise(() => {}) : gcall(name, args)
+  const r = await run3(task(), { call: g.call, ask: answer(), handoff: async () => ({}) })
+  assert.equal(r.code, 'OBSERVE_TIMEOUT')
+})
