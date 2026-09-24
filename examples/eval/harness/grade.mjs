@@ -7,6 +7,10 @@ import * as publicChecks from '../checks/public.mjs'
 const c = (id, passed, detail) => ({ id, passed: !!passed, ...(detail !== undefined ? { detail } : {}) })
 
 async function oracle(task, run, result) {
+  if (task.oracle?.kind === 'items') {
+    const r = await fetch(gradeUrl(run.site, run.runId), { method: 'POST', headers: { 'Content-Type': 'application/json', ...evalHeaders() }, body: JSON.stringify({ items: Array.isArray(result.items) ? result.items : [] }) })
+    return r.json()
+  }
   if (task.oracle?.kind === 'answer') {
     const r = await fetch(gradeUrl(run.site, run.runId), { method: 'POST', headers: { 'Content-Type': 'application/json', ...evalHeaders() }, body: JSON.stringify({ answer: result.answer ?? '' }) })
     return r.json()

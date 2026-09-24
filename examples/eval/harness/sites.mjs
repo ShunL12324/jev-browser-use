@@ -7,6 +7,7 @@ export const LOCAL_SITES = {
   workspace: { port: 17443, stack: 'vanilla JS + Web Components (open/closed shadow DOM)' },
   partner: { port: 17444, stack: 'cross-origin partner (iframe + OAuth popup)' },
   forma: { port: 17445, stack: 'static HTML fixture vendored from jev-ultrafast' },
+  feed: { port: 17446, stack: 'masonry feed with modal posts (plain HTML + script; native <dialog> in the held-out variant)' },
   'complex-forms': { port: 17431, stack: 'React 19 multi-step form (examples/complex-forms)', reset: '/api/reset', oracle: id => `/api/oracle/${id}` }
 }
 export const siteOrigin = site => `http://${HOST}:${LOCAL_SITES[site].port}`
