@@ -27,8 +27,8 @@ async function main() {
     await host.close()
     process.exit(0)
   })
-  process.on('SIGTERM', async () => {
-    log.info('SIGTERM — shutting down')
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, async () => {
+    log.info(`${signal} — shutting down`)
     await host.close()
     process.exit(0)
   })

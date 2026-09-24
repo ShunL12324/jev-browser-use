@@ -8,6 +8,7 @@
 //   - last error
 
 import { createLogger } from '../lib/logger'
+import { closeAgentTabs } from '../lib/tools/tabs'
 import { AGENT_PROTOCOL, BUILD_ID } from '../shared/agent-protocol'
 import { executeTool } from '../lib/tools'
 import { generateId } from '../lib/id'
@@ -168,7 +169,16 @@ export async function reconnect() {
   await startBridge()
 }
 
+// If the bridge stays away for 30 s, its agent tabs are closed (an alarm
+// survives service-worker suspension; a reconnect cancels it).
+const STALE_ALARM = 'agent-tabs-stale'
+chrome.alarms.onAlarm.addListener(async alarm => {
+  if (alarm.name !== STALE_ALARM || socket?.readyState === WebSocket.OPEN) return
+  const n = await closeAgentTabs()
+  if (n) log.info(`bridge gone for 30s: closed ${n} agent tab(s)`)
+})
 function scheduleReconnect(reason?: string) {
+  chrome.alarms.get(STALE_ALARM).then(a => { if (!a) chrome.alarms.create(STALE_ALARM, { delayInMinutes: 0.5 }) })
   const url = urlFor(config)
   const delay = backoffMs
   setStatus({ state: 'closed', url, error: reason, nextAttemptMs: delay })
@@ -196,6 +206,7 @@ function connect() {
   ws.addEventListener('open', () => {
     log.info('bridge open', { url })
     backoffMs = 1_000
+    chrome.alarms.clear(STALE_ALARM)
     setStatus({ state: 'open', url, sinceMs: Date.now() })
     const hello: BridgeHello = {
       v: BRIDGE_PROTOCOL_VERSION,

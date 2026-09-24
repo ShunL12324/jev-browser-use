@@ -63,5 +63,20 @@ try {
   } })
   const view = (await browser.tool('browser_view', { tabId: ov.tabId })).content, typedValue = /"Search box" \[e\d+\] = "JEV"/.test(view) ? 'JEV' : view
   assert.equal(ov.status, 'done'); assert.equal(typedValue, 'JEV', JSON.stringify(ovEvents.filter(e => ['execute', 'outcome', 'decision'].includes(e.event))))
+  // No tab groups ever (Chrome would save them to the bookmark bar).
+  const grouped = await browser.worker.evaluate(async () => (await chrome.tabs.query({})).filter(t => t.groupId !== -1).length)
+  assert.equal(grouped, 0)
+  // A session that ends closes its own tabs.
+  await peer.close(); peer = null
+  await new Promise(r => setTimeout(r, 500))
+  const alive = await browser.worker.evaluate(async id => (await chrome.tabs.query({})).some(t => t.id === id), own)
+  assert.equal(alive, false)
+  // The hub bridge exiting closes its task tabs; the agent window goes with them.
+  const agentWindow = await browser.worker.evaluate(async () => (await chrome.storage.session.get('agentWindow')).agentWindow?.windowId)
+  assert.ok(Number.isInteger(agentWindow))
+  await browser.closeBridge()
+  let windowLeft = true
+  for (let i = 0; i < 30 && windowLeft; i++) { await new Promise(r => setTimeout(r, 200)); windowLeft = await browser.worker.evaluate(async id => (await chrome.windows.getAll()).some(w => w.id === id), agentWindow) }
+  assert.equal(windowLeft, false)
   console.log(JSON.stringify({ event: 'task_tabs_pass', adoptedTab: adopted.tabId, settleEnv: env, liveJev: false }))
 } finally { await peer?.close(); await browser.close(); server.close() }

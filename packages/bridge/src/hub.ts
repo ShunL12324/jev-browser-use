@@ -33,6 +33,12 @@ export class TabScope {
     this.current.delete(session)
   }
   owned(session: string) { return [...this.owners].filter(([, s]) => s === session).map(([id]) => id) }
+  // A finished session leaves nothing behind: its tabs are closed (the agent
+  // window closes by itself with its last tab).
+  async closeOwned(session: string) {
+    try { await this.list() } catch { /* extension gone */ }
+    for (const id of this.owned(session)) { try { await this.raw.invoke('tabs', { action: 'close', tabId: id }) } catch { /* already closed */ } this.owners.delete(id) }
+  }
 
   private async list(): Promise<Tab[]> {
     const r = await this.raw.invoke('tabs', { action: 'list', all: true }) as { tabs: Tab[] }
@@ -101,7 +107,8 @@ export async function startBrowserHost(opts: { port: number }): Promise<BrowserH
       try { ws.send(JSON.stringify({ kind: 'result', id: f.id, ok: true, result: await scope!.invoke(s, f.tool, f.params, f.tabId) })) }
       catch (e) { const err = e as ToolInvokeError; ws.send(JSON.stringify({ kind: 'result', id: f.id, ok: false, code: err.code ?? 'TOOL_ERROR', short_term: err.short_term ?? true, message: err.message })) }
     })
-    ws.on('close', () => { const s = peers.get(ws); peers.delete(ws); if (s) scope?.release(s) })
+    // A peer that leaves closes its tabs; a hub shutting down (failover) does not.
+    ws.on('close', async () => { const s = peers.get(ws); peers.delete(ws); if (s && !closing) { await scope?.closeOwned(s); scope?.release(s) } })
   }
 
   async function becomeHub(): Promise<boolean> {
@@ -152,6 +159,14 @@ export async function startBrowserHost(opts: { port: number }): Promise<BrowserH
   ready = connect()
   await ready
 
+  // A peer closes its own tabs through the hub before disconnecting.
+  const closePeerTabs = async () => {
+    for (const id of [...owned]) {
+      const req = randomUUID(), ws = peer!
+      await new Promise<void>(resolve => { const t = setTimeout(resolve, 1000); pending.set(req, { resolve: () => { clearTimeout(t); resolve() }, reject: () => { clearTimeout(t); resolve() }, tool: 'tabs' }); ws.send(JSON.stringify({ kind: 'invoke', id: req, tool: 'tabs', params: { action: 'close', tabId: id } })) })
+      owned.delete(id)
+    }
+  }
   const track = (tool: string, params: unknown, result: unknown) => {
     const p = (params ?? {}) as { action?: string; tabId?: number }, r = result as { tabId?: number; tabs?: Tab[] }
     if (tool !== 'tabs') return
@@ -182,6 +197,8 @@ export async function startBrowserHost(opts: { port: number }): Promise<BrowserH
     },
     async close() {
       closing = true
+      if (mode === 'hub' && ext?.isConnected()) await Promise.race([scope!.closeOwned(session), new Promise(r => setTimeout(r, 3000))])
+      if (mode === 'peer' && peer?.readyState === WebSocket.OPEN) await Promise.race([closePeerTabs(), new Promise(r => setTimeout(r, 3000))])
       if (mode === 'hub') { try { if (readFileSync(tokenPath(opts.port), 'utf8').trim() === token) rmSync(tokenPath(opts.port)) } catch { /* gone */ } for (const ws of peers.keys()) ws.terminate(); await ext?.close() }
       peer?.close()
     }

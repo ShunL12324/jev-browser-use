@@ -161,7 +161,7 @@ r3 开发期复测（T33 评测站私有副本，standard 变体，atlas/birch�
 
 - **hub 模式**（`packages/bridge/src/hub.ts`）：第一个 bridge 占用 17329 并连接扩展；后启动的 bridge 遇到 `EADDRINUSE` 时，读取 hub 写入的本地 token（`$XDG_RUNTIME_DIR` 或临时目录下的 `browser-use-hub-<port>.token`，权限 0600），以 `x-hub-token` 连接 `ws://127.0.0.1:<port>/peer`，把自己的工具调用转发给 hub。带 `Origin` 头（网页发起）的连接一律拒绝。hub 退出后，某个 peer 接管端口，扩展按原有退避逻辑重连，各会话重新声明自己的 tab。进行中的调用返回 `BRIDGE_DISCONNECT`，browser_task 按“执行结果未知”停止，不重放。
 - **tab 归属**：每个 MCP 会话只能看到和操作自己打开的 tab 以及由这些 tab 打开的 tab（`openerTabId`）。`browser_tabs list` 只列这些 tab；操作其它 tab 返回 `TAB_NOT_OWNED`；不带 tabId 的调用作用于本会话的当前 tab，没有 tab 时返回 `NO_SESSION_TAB`。batch 中不允许 tabs 操作。设 `BROWSER_USE_TAB_SCOPE=off` 可恢复旧的单会话行为（仅供兼容测试）。
-- **专用窗口**：会话的新 tab 放在一个不获取焦点的独立窗口，归入 “Jev agent” tab 组（新增 `tabGroups` 权限）；由 agent tab 打开的 tab 自动加入该组。服务不读写用户自己的 tab、cookie 或账户。
+- **专用窗口**：会话的新 tab 放在一个不获取焦点的独立窗口（不使用 tab 组：Chrome 会把关闭的组保存到书签栏，扩展 API 无法删除）。扩展在 `chrome.storage.session` 记录 agent tab（含由它们打开的 tab）。MCP 会话结束（peer 断开、bridge 收到 stdin 结束/SIGINT/SIGTERM）时关闭该会话的 tab，窗口随最后一个 tab 关闭；bridge 断开超过 30 s 时扩展关闭记录的 agent tab。hub 为故障转移而退出时不关闭 peer 的 tab。服务不读写用户自己的 tab、cookie 或账户。
 - **新 tab 采纳**：browser_task 每次点击或 Enter 后检查本会话 tab；新打开的子 tab 被采纳并成为当前 tab（激活在其窗口内，不抢窗口焦点）。有多个任务 tab 时，state 列出 `tabs`，并提供 `SWITCH_TAB` / `CLOSE_TAB`（R0）。
 - **跨页的值**：任务页面上出现的代码、邮箱、电话号码被记住（在秘密替换之后），列在 `state.valuesSeenOnTaskPages`，并作为 `text_value` 候选，可在另一页直接输入（例如帮助页上的激活码）。
 - **settle 不依赖页面计时器**：非聚焦或被遮挡的窗口里，页面 `setTimeout`/`requestAnimationFrame` 可能被节流。现在等待全部由 bridge 的 Node 计时器完成：轮询页面的 MutationObserver 计数，一个 25 ms 间隔无变化即结束（上限 150 ms）；向 combobox 输入后等可见选项连续两次不变（上限 800 ms）。首次 settle 记录页面的 `visibilityState` 与 `hasFocus()`（trace 事件 `settle_env`），用于在用户 Chrome 上测量。
