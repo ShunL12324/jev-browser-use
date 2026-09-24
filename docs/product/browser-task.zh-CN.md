@@ -184,3 +184,5 @@ r3 开发期复测（T33 评测站私有副本，standard 变体，atlas/birch�
 - **账本锁**：并发会话等待账本锁（最多 10 s，`JEV_LEDGER_LOCK_WAIT_MS`），超时仍按“锁未释放”失败关闭，不发送请求。
 - **内容脚本缺失**：极少数新窗口中声明的内容脚本没有启动；扩展在 300 ms 后仍收不到应答时，把 manifest 中的内容脚本注入该 frame 一次再重试。
 - 用户 Chrome 上 complex-forms 的 12.7–14.1 s 中约 6.3 s 是 tester 回答两次确认的等待（`handoffWaitMs`）；非 handoff 时间约 7.3 s，settle 约 0.8 s，与 WSL 相同。窗口 `visibilityState` 为 visible、未获得焦点，没有观察到节流。
+
+第二轮修正：agent 窗口在整个 bridge 生命周期内复用（上一个任务的最终 tab 在新任务的 tab 出现之后才关闭，窗口不会因为变空而关闭再重开）；表单外的日期类输入框（名称含 date/departure/return/check-in 等）输入后自动按一次 Enter 提交所填日期（表单内的 Enter 会提交表单，留给模型决定）；对话框中的 Done/OK/Apply/Select 类按钮属于 R1；没有造成任何可见变化的点击计入同一目标的拒绝次数；页面验证信息中的长度规则（例如“must be 10 digits”）用于在模型分散时筛选目标文字中的候选；停滞判定只针对最近已尝试过的目标，新的动作（例如关闭挡住表单的弹窗）照常执行。
