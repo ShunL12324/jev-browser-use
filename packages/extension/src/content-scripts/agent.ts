@@ -73,9 +73,10 @@ function observe(limit: number) {
     // A grid cell wrapping its own button is the same target twice.
     return !(el.getAttribute('role') === 'gridcell' && el.querySelector('button,[role="button"],a[href]'))
   })
-  // Large grids (calendars, tables) must not crowd out the few controls
-  // around them (Done, next month, Search): non-cell controls come first.
-  const picked = [...near.filter(it => !isCell(findByRef(it.ref)!)), ...near.filter(it => isCell(findByRef(it.ref)!))].slice(0, limit)
+  // Nearest first, but large grids (calendars, tables) may take at most half
+  // the budget so the controls around them (Done, next month) still fit.
+  let cells = 0
+  const picked = near.filter(it => !isCell(findByRef(it.ref)!) || cells++ < limit / 2).slice(0, limit)
   const elements = picked.map(it => {
     const el = findByRef(it.ref)!, f = facts(el), r = el.getBoundingClientRect()
     const input = el instanceof HTMLInputElement ? el : null
