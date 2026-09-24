@@ -9,15 +9,16 @@ import { startTask, closeSession } from '../packages/bridge/dist/agent/task.mjs'
 const origin = 'http://127.0.0.1:17441'
 const choice = (q, id) => ({ type: 'choice', choice: id, probabilities: Object.fromEntries(Object.keys(q.criteria).map(k => [k, k === id ? 1 : 0])) })
 const button = (ref, name, item) => ({ ref, role: 'button', name, item, tag: 'button', inputType: null, value: null, checked: null, selected: null, expanded: null, hasPopup: null, disabled: false, readonly: false, modalBlocked: false, dialog: null, context: [], href: null, editable: false, password: false, submit: false, formMethod: 'get', payment: false, inView: true, guard: 'g' })
-const cards = [button('e1', 'Open item one', 'Item one'), button('e2', 'Open item two', 'Item two'), button('e3', 'Open item three', 'Item three')]
+const cards = [button('e1', 'Open item one', 'Item one'), button('e2', 'Open item two', 'Item two'), button('e3', 'Open duplicate', 'Duplicate card'), button('e4', 'Open item three', 'Item three')]
 const details = [
   { kind: 'dialog', title: 'Item one', author: 'Ada', date: '2026-09-24', url: origin + '/one', text: 'Item one\nVideo player' },
+  { kind: 'dialog', title: 'Item two', author: 'Ben', date: '2026-09-24', url: origin + '/two', text: 'Item two\nA text post about the topic.' },
   { kind: 'dialog', title: 'Item two', author: 'Ben', date: '2026-09-24', url: origin + '/two', text: 'Item two\nA text post about the topic.' },
   { kind: 'dialog', title: 'Item three', author: 'Cal', date: '2026-09-24', url: origin + '/three', text: 'Item three\nAnother text post about the topic.' }
 ]
 const task = { goal: 'Collect two text posts about the topic', kind: 'collect', collect: { count: 2, item: 'text posts about the topic, not video' }, startUrl: origin + '/', allowedOrigins: [origin], inputs: {}, irreversible: 'none', llm: 'none', budgets: { maxSteps: 20, maxJevRequests: 20, timeoutMs: 10000 } }
 
-test('collect skips unfit detail, quotes two DOM items, closes modal and excludes visited cards', async () => {
+test('collect skips unfit and duplicate detail, quotes two DOM items, closes modal and excludes visited cards', async () => {
   let open = -1, clicks = [], closes = 0
   const call = async (name, args) => {
     if (name === 'tabs') return { tabId: 7 }
@@ -44,8 +45,8 @@ test('collect skips unfit detail, quotes two DOM items, closes modal and exclude
   }
   const result = await runTask(task, { call, ask, handoff: async () => ({}) })
   assert.equal(result.status, 'done')
-  assert.deepEqual(clicks, ['e1', 'e2', 'e3'])
-  assert.equal(closes, 2)
+  assert.deepEqual(clicks, ['e1', 'e2', 'e3', 'e4'])
+  assert.equal(closes, 3)
   assert.equal(result.skipped, 1)
   assert.deepEqual(result.items.map(i => i.title), ['Item two', 'Item three'])
   assert.equal(result.items[0].text, details[1].text)

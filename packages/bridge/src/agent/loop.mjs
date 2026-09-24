@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
 import { bindCandidates, fits, searchLike, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
-import { collectedItem, itemKey } from './collect.mjs'
+import { collectedItem, detailKey, itemKey } from './collect.mjs'
 
 const now = () => performance.now()
 export const AGENT_PROTOCOL = 3
@@ -324,6 +324,11 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         if (!ok.approve) return result('blocked', { reason: 'origin_denied' })
         allowed.add(originOf(page.url))
       }
+      if (task.kind === 'collect' && record.activeSource && page.detail?.text && record.processedDetails.has(detailKey(page.detail))) {
+        record.visited.add(record.activeSource)
+        await exec(page.detail.kind === 'dialog' ? 'close_dialog' : 'back', null)
+        continue
+      }
       if (task.kind === 'collect' && record.items.length >= task.collect.count) return result('done', { verification: 'evidence_quoted' })
       const built = build(page, task, history, [...seenValues.values()], record)
       m.jevRequests++
@@ -333,7 +338,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       if (invalid.has('operation')) throw new RunError('BAD_ANSWER', 'Invalid operation answer; nothing executed.')
       if (invalid.size) emit({ event: 'invalid_answers', ids: [...invalid] })
       if (task.kind === 'collect' && built.payload.questions.collect_fit) {
-        const detail = page.detail, key = `${detail.url}|${detail.title}|${record.activeSource}`
+        const detail = page.detail, key = detailKey(detail)
         if (invalid.has('collect_fit')) throw new RunError('BAD_ANSWER', 'Invalid item fitness answer; item was not recorded.')
         if (answers.collect_fit.noul >= 0.7) {
           const item = collectedItem(detail)

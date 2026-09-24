@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 const clean = value => String(value ?? '').replace(/\s+/g, ' ').trim()
 export const itemKey = element => clean(element?.href || element?.item || [element?.name, ...(element?.context ?? [])].join('|')).slice(0, 500)
+export const detailKey = detail => `${clean(detail.url)}|${clean(detail.title)}|${createHash('sha256').update(String(detail.text ?? '')).digest('hex').slice(0, 16)}`
 export const evidenceId = (url, text) => `ev_${createHash('sha256').update(`${url}\n${text}`).digest('hex').slice(0, 16)}`
 
 // The page side supplies only DOM text and semantic metadata. The bridge
