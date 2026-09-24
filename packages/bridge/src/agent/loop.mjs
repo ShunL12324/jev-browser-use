@@ -383,7 +383,10 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       const mine = joints.find(([k]) => k === (id ? `${op}:${id}` : op))?.[1] ?? 0, rival = joints.find(([k]) => k !== (id ? `${op}:${id}` : op))?.[1] ?? 0
       const safeNav = level === 'R2' && safeNavigation(op, el, page)
       const thin = level === 'R2' && !safeNav && mine < R2_MARGIN * rival
-      let why = op === 'BLOCKED' ? 'model_blocked' : gateP < (safeNav ? SAFE_NAV_GATE : committing ? SUBMIT_GATE : GATES[level] ?? 0) || thin ? `p=${gateP.toFixed(2)}${thin ? ` margin ${(mine / Math.max(rival, 1e-9)).toFixed(2)}` : ''} below ${level} gate` : stalls >= 3 || repeats.get(repeatKey) > 2 ? 'no_progress'
+      // No progress only counts against an action already tried recently: a
+      // different, new action (e.g. dismissing what blocked the others) runs.
+      const tried = !el || history.slice(-3).some(h => h.ref === el.ref)
+      let why = op === 'BLOCKED' ? 'model_blocked' : gateP < (safeNav ? SAFE_NAV_GATE : committing ? SUBMIT_GATE : GATES[level] ?? 0) || thin ? `p=${gateP.toFixed(2)}${thin ? ` margin ${(mine / Math.max(rival, 1e-9)).toFixed(2)}` : ''} below ${level} gate` : stalls >= 3 && tried || repeats.get(repeatKey) > 2 ? 'no_progress'
         : unresolved.length && ['R2', 'R3'].includes(level) ? `unresolved inputs: ${unresolved.map(d => d.valueId).join(', ')}` : null
       if (why === 'no_progress' && ++stallHandoffs > 2) return result('blocked', { reason: 'no_progress' })
       // Below a gate, first try the safest informative step the model also
