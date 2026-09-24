@@ -151,7 +151,7 @@ node harness/run.mjs report               # 按任务、能力与加权覆盖汇
 
 1. validator/master 运行 `node harness/run.mjs start <taskId> --seed … --variant …`，把输出中的 `runnerView` 交给 tester（不要交 pending 文件）。
 2. tester 调用 `browser_task start`，自己回答 handoff，把 `browser_task` 返回的 `status/answer/finalUrl/metrics/tracePath` 与自己的 handoff 记录（`{kind, at, approve}`）写成 result.json。
-3. validator/master 运行 `node harness/run.mjs finish <pending> --result result.json [--trace …] [--page-state …]`。控制台输出不显示期望值；完整明细在 `results/`，tester 不应读取该目录。
+3. validator/master 运行 `node harness/run.mjs finish <pending> --result result.json [--trace …] [--page-state …]`。tester 的 handoff 记录没有时间戳时，confirm 的批准时间从产品 trace 的 `handoff_answer` 事件恢复（bridge 与站点同一时钟），行内记 `handoffSource: trace`；公开任务没有 `--page-state` 时（如 google.com 的 CSP 阻止 eval 读取），用 trace 中最后一次产品观察作为页面状态，证据级别记为 `runner_trace_observation`（低于 harness 自读）。已有 tester 结果可用 `node harness/run.mjs regrade results/tester.jsonl` 按 pending 记录与 trace 重新判分，不产生新运行。控制台输出不显示期望值；完整明细在 `results/`，tester 不应读取该目录。
 
 WSL 侧访问公网不稳定时，按进程设置代理（不改全局配置）：harness/bridge 进程用 `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=… HTTP_PROXY=… NO_PROXY=127.0.0.1,localhost`，临时 Chromium 用 `EVAL_BROWSER_PROXY=http://127.0.0.1:7890`（本地站点始终绕过代理）。网络超时计为环境失败，与 agent 失败分开报告但都计数。
 

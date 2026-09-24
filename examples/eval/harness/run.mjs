@@ -4,14 +4,17 @@
 //   run --runner R [--tasks glob] [--seeds a,b] [--variants s,a] [--repeat n] [--handoff scripted|deny] [--out file]
 //   start TASK [--seed s] [--variant v]   tester mode: reset and print the runner view
 //   finish PENDING --result FILE [--trace FILE] [--page-state FILE]   tester mode: grade independently
+//   regrade TESTER.jsonl [--out FILE]     re-grade tester rows from pending records + traces
 //   report [RESULTS.jsonl]                aggregate by task, capability and weighted coverage
 import { parseArgs } from 'node:util'
+import { dirname, join } from 'node:path'
 import { readFile, writeFile, appendFile, mkdir } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
 import { loadTasks, prepare, resolveSecrets, viewHash } from './tasks.mjs'
 import { grade } from './grade.mjs'
 import { readPageState, trimPageState } from './browser.mjs'
 import { report } from './report.mjs'
+import { gradingHandoffs, tracePageState } from './trace.mjs'
 
 const RESULTS_DIR = new URL('../results/', import.meta.url).pathname
 const BOUNDARIES = {
@@ -57,6 +60,21 @@ export async function runOne(task, runner, { seed, variant, handoff, page }) {
   }
 }
 
+// Grades one tester-mode result. Handoff timestamps and, for public page
+// checks, the page state fall back to the product trace when the tester's
+// result lacks them; the evidence source is recorded in the row.
+async function testerRow(tasks, p, result, { trace, pageStateFile, e2eMs } = {}) {
+  const task = tasks.find(t => t.id === p.run.taskId), tracePath = trace ?? result.tracePath ?? null
+  const secrets = task.suite === 'local' ? resolveSecrets(p.runnerView, p.run.seed) : {}, traceText = tracePath ? await readFile(tracePath, 'utf8').catch(() => '') : ''
+  const handoffs = gradingHandoffs(result.handoffs, traceText)
+  const pageState = pageStateFile ? { ...JSON.parse(await readFile(pageStateFile, 'utf8')), source: 'runner' } : task.suite === 'public' ? tracePageState(traceText) : null
+  const graded = await grade(task, p.run, { ...result, handoffs }, { secrets, traceText, pageState })
+  return { taskId: task.id, suite: task.suite, capabilities: task.capabilities, runner: result.runner ?? 'tester', evidence: 'tester', seed: p.run.seed, variant: p.run.variant, heldOut: p.run.variant === 'alternate' && task.heldOutStrength !== 'css_only', runId: p.run.runId ?? null,
+    viewHash: viewHash(p.runnerView), startedAt: p.startedAt, passed: graded.passed, status: result.status, checks: graded.checks, irreversible: graded.irreversible, leaked: graded.leaked, oracleEvidence: graded.evidence,
+    answer: result.answer ?? null, e2eMs: e2eMs ?? Date.now() - p.startedAt, metrics: result.metrics ?? {}, handoffs, handoffSource: handoffs === result.handoffs ? 'tester' : 'trace', pageStateSource: pageState?.source ?? null, tracePath,
+    ...(task.suite === 'public' && pageState ? { pageState: trimPageState(pageState) } : {}), boundaries: { ...BOUNDARIES, e2eMs: 'tester mode: harness start -> harness finish (includes tester turns)' } }
+}
+
 async function main() {
   const [command, ...rest] = process.argv.slice(2)
   const { values: o, positionals } = parseArgs({ args: rest, allowPositionals: true, options: {
@@ -90,16 +108,24 @@ async function main() {
     return
   }
   if (command === 'finish') {
-    const p = JSON.parse(await readFile(positionals[0], 'utf8')), task = tasks.find(t => t.id === p.run.taskId), result = JSON.parse(await readFile(o.result, 'utf8'))
-    const secrets = task.suite === 'local' ? resolveSecrets(p.runnerView, p.run.seed) : {}, traceText = o.trace ? await readFile(o.trace, 'utf8') : ''
-    const pageState = o['page-state'] ? { ...JSON.parse(await readFile(o['page-state'], 'utf8')), source: 'runner' } : null
-    const graded = await grade(task, p.run, result, { secrets, traceText, pageState })
-    const row = { taskId: task.id, suite: task.suite, capabilities: task.capabilities, runner: result.runner ?? 'tester', evidence: 'tester', seed: p.run.seed, variant: p.run.variant, heldOut: p.run.variant === 'alternate' && task.heldOutStrength !== 'css_only', runId: p.run.runId ?? null,
-      viewHash: viewHash(p.runnerView), startedAt: p.startedAt, passed: graded.passed, status: result.status, checks: graded.checks, irreversible: graded.irreversible, leaked: graded.leaked, oracleEvidence: graded.evidence,
-      answer: result.answer ?? null, e2eMs: Date.now() - p.startedAt, metrics: result.metrics ?? {}, handoffs: result.handoffs ?? [], tracePath: o.trace ?? result.tracePath ?? null, boundaries: { ...BOUNDARIES, e2eMs: 'tester mode: harness start -> harness finish (includes tester turns)' } }
+    const p = JSON.parse(await readFile(positionals[0], 'utf8')), result = JSON.parse(await readFile(o.result, 'utf8'))
+    const row = await testerRow(tasks, p, result, { trace: o.trace, pageStateFile: o['page-state'] })
     await appendFile(o.out ?? `${RESULTS_DIR}tester.jsonl`, JSON.stringify(row) + '\n')
     // Console output never reveals expected answers (results/ keeps full detail for the validator).
     console.log(JSON.stringify({ passed: row.passed, failedChecks: row.checks.filter(c => !c.passed).map(c => c.id.replace(/^(contains|number|forbid):.*/, '$1:<hidden>')) }, null, 2))
+    return
+  }
+  if (command === 'regrade') {
+    // Re-grades tester rows from their pending records and traces (no new runs).
+    const rows = (await readFile(positionals[0], 'utf8')).split('\n').filter(Boolean).map(l => JSON.parse(l)), out = o.out ?? `${RESULTS_DIR}tester-regraded.jsonl`
+    for (const old of rows) {
+      const pendingPath = old.runId ? join(dirname(positionals[0]), `pending-${old.taskId}-${old.runId}.json`) : null
+      const p = pendingPath ? JSON.parse(await readFile(pendingPath, 'utf8')) : { run: { taskId: old.taskId, suite: 'public' }, runnerView: {}, startedAt: old.startedAt }
+      const row = await testerRow(tasks, p, { runner: old.runner, status: old.status, answer: old.answer, metrics: old.metrics, handoffs: old.handoffs, tracePath: old.tracePath }, { e2eMs: old.e2eMs })
+      await appendFile(out, JSON.stringify({ ...row, regradedFrom: { passed: old.passed, failed: old.checks.filter(c => !c.passed).map(c => c.id) } }) + '\n')
+      console.log(`${old.passed ? 'PASS' : 'FAIL'} -> ${row.passed ? 'PASS' : 'FAIL'} ${old.taskId} ${old.runner} ${row.checks.filter(c => !c.passed).map(c => c.id.replace(/^(contains|number|forbid):.*/, '$1:<hidden>')).join(',')}`)
+    }
+    console.log(JSON.stringify({ out }))
     return
   }
   if (command === 'report') { console.log(await report(positionals[0])); return }
@@ -115,7 +141,7 @@ async function main() {
     console.log(JSON.stringify({ JEV_SECRETS_MANIFEST: `${dir}/secrets-${seed}.json`, JEV_S1_FILES_MANIFEST: `${dir}/files-${seed}.json` }))
     return
   }
-  console.log('Commands: list | run | start | finish | report')
+  console.log('Commands: list | run | start | finish | regrade | report | manifests')
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname) await main()

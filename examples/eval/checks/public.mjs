@@ -4,7 +4,7 @@
 import { gradeAnswer } from '../lib/common.mjs'
 
 const c = (id, passed, detail) => ({ id, passed: !!passed, ...(detail !== undefined ? { detail } : {}) })
-const evidence = pageState => pageState?.source === 'harness' ? 'harness_page_read' : pageState ? 'runner_reported_page' : 'runner_reported_url'
+const evidence = pageState => pageState?.source === 'harness' ? 'harness_page_read' : pageState?.source === 'runner_trace' ? 'runner_trace_observation' : pageState ? 'runner_reported_page' : 'runner_reported_url'
 
 export function answer({ task, result }) {
   const g = gradeAnswer(result.answer ?? '', task.expect)
