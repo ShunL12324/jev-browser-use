@@ -19,6 +19,7 @@ export const OPERATIONS = {
   GO_BACK: 'Go back to the previous page.',
   SWITCH_TAB: 'Switch to another tab of this task (e.g. one a link opened).',
   CLOSE_TAB: 'Close another tab of this task that is no longer needed.',
+  CLOSE_DIALOG: 'Close the open dialog and return to the underlying list.',
   DONE: 'Every requirement of the goal is visibly satisfied now.'
 }
 
@@ -29,13 +30,13 @@ export function describe(e) {
 
 // Fields holding an applied supplied input are protected: no operation head
 // may retype, reselect or toggle them (bind owns them).
-export function targets(page, used = new Set()) {
+export function targets(page, used = new Set(), visited = new Set()) {
   const out = { CLICK: {}, TYPE_TEXT: {}, SELECT: {}, PRESS_ENTER: {}, SWITCH_TAB: {}, CLOSE_TAB: {} }
   for (const e of page.elements.filter(usable)) {
     if (e.inputType === 'file' || e.password) continue
     if (used.has(e.ref)) { if (e.editable && e.value && (e.tag !== 'textarea' || searchLike(e))) out.PRESS_ENTER[e.ref] = { ref: e.ref }; continue }
     // Unnamed controls give the model nothing to judge; they stay unoffered.
-    if (e.tag !== 'select' && e.name && !/^<\w+>$/.test(e.name)) out.CLICK[e.ref] = { ref: e.ref }
+    if (e.tag !== 'select' && e.name && !/^<\w+>$/.test(e.name) && !visited.has(e.visitKey)) out.CLICK[e.ref] = { ref: e.ref }
     if (e.editable) out.TYPE_TEXT[e.ref] = { ref: e.ref }
     if (e.editable && e.value && (e.tag !== 'textarea' || searchLike(e))) out.PRESS_ENTER[e.ref] = { ref: e.ref }
     // Long native lists stay reachable through supplied-input binding.
@@ -47,9 +48,9 @@ export function targets(page, used = new Set()) {
   return Object.defineProperty(out, 'omitted', { value: omitted, enumerable: false })
 }
 
-export function pageOperations(page, history, used) {
+export function pageOperations(page, history, used, visited) {
   const ops = {}
-  const t = targets(page, used)
+  const t = targets(page, used, visited)
   for (const op of ['CLICK', 'TYPE_TEXT', 'SELECT', 'PRESS_ENTER']) if (Object.keys(t[op]).length) ops[op] = OPERATIONS[op]
   if (page.scroll.y + page.scroll.viewport < page.scroll.height - 2) ops.SCROLL_DOWN = OPERATIONS.SCROLL_DOWN
   if (page.scroll.y > 0) ops.SCROLL_UP = OPERATIONS.SCROLL_UP
@@ -59,6 +60,7 @@ export function pageOperations(page, history, used) {
   }
   ops.WAIT = OPERATIONS.WAIT
   if (history.some(h => h.navigated)) ops.GO_BACK = OPERATIONS.GO_BACK
+  if (page.detail?.kind === 'dialog') ops.CLOSE_DIALOG = OPERATIONS.CLOSE_DIALOG
   // No BLOCKED head: an unsure model spreads mass there. Low confidence and
   // no-progress are routed to the caller by code instead.
   ops.DONE = OPERATIONS.DONE
@@ -103,7 +105,7 @@ export function irreversible(e, page) {
   return null
 }
 export function tier(op, e, page) {
-  if (['SCROLL_DOWN', 'SCROLL_UP', 'WAIT', 'SWITCH_TAB', 'CLOSE_TAB'].includes(op)) return 'R0'
+  if (['SCROLL_DOWN', 'SCROLL_UP', 'WAIT', 'SWITCH_TAB', 'CLOSE_TAB', 'CLOSE_DIALOG'].includes(op)) return 'R0'
   if (['TYPE_TEXT', 'SELECT', 'BIND'].includes(op)) return 'R1'
   if (op === 'GO_BACK') return 'R2'
   if (irreversible(e, page)) return 'R3'

@@ -1,5 +1,19 @@
 # browser_task 使用说明（P1a）
 
+## P2a 会话与逐条采集
+
+`start` 返回 `sessionId`。下一次 `start` 可传同一个 `sessionId` 而省略 `startUrl`，继续使用原任务 tab，并把此前的动作和采集记录带入 Jev 状态。同一会话同时只能运行一个任务；`cancel` 停止当前任务但保留会话，`close_session` 用 `{action:"close_session",sessionId}` 关闭该任务 tab 并删除会话。`status`/`continue` 仍使用每次运行独有的 `taskId`。会话存在于 bridge 进程内，进程退出后不能恢复。
+
+逐条阅读信息流可用：
+
+```jsonc
+{"action":"start","goal":"Collect 10 text posts about JEV","kind":"collect",
+ "collect":{"count":10,"item":"text posts about JEV, excluding videos"},
+ "startUrl":"https://example.com/search","allowedOrigins":["https://example.com"]}
+```
+
+采集只读取打开的可见 `dialog` 或单篇文章区域。Jev 对每条已打开内容判断是否符合 `collect.item`；服务把符合的页面原文保存为 `{title,author,date,url,text,evidenceIds}`，跳过不符合的条目，并返回列表、`skipped` 和 `visited` 计数。达到 `count` 时完成；列表耗尽时返回 `blocked`，保留已采集的条目。原文截取上限为每条 16,000 字符，摘要由调用方根据 `items[]` 生成。会话历史让下次任务可识别已访问条目。弹窗可用 `CLOSE_DIALOG` 回到信息流，独立页面用后退返回。
+
 `browser_task` 是 [产品架构设计](architecture.zh-CN.md) 的 P1a 实现：调用方用自然语言给出任务，服务内的 Jev 每个周期做一次决策，只有需要文本、确认或 Jev 不确定时才把问题交回调用方（handoff）。18 个低层 `browser_*` 工具、S1、form_batch、J0/J1 都保持原样。
 
 ## 启动

@@ -8,7 +8,7 @@ const origin = 'http://127.0.0.1:17441'
 let n = 0
 const el = (name, extra = {}) => ({ ref: `e${++n}`, role: 'textbox', name, tag: 'input', inputType: 'text', value: '', checked: null, selected: null, expanded: null, hasPopup: null, disabled: false, readonly: false, modalBlocked: false, dialog: null, context: [], href: null, editable: true, password: false, submit: false, formMethod: 'get', payment: false, inView: true, guard: 'g', ...extra })
 const button = (name, extra = {}) => el(name, { role: 'button', tag: 'button', inputType: null, editable: false, value: null, ...extra })
-const page = (elements, extra = {}) => ({ agentProtocol: 2, documentId: 'd1', url: origin + '/', title: 'T', text: '', scroll: { y: 0, height: 900, viewport: 900 }, elements, omitted: 0, marker: 'm', ...extra })
+const page = (elements, extra = {}) => ({ agentProtocol: 3, documentId: 'd1', url: origin + '/', title: 'T', text: '', scroll: { y: 0, height: 900, viewport: 900 }, elements, omitted: 0, marker: 'm', ...extra })
 const task = (extra = {}) => ({ goal: 'g', startUrl: origin + '/', allowedOrigins: [origin], inputs: {}, irreversible: 'confirm', llm: 'handoff', budgets: { maxSteps: 20, maxJevRequests: 6, timeoutMs: 10000 }, ...extra })
 const choice = (q, pick, p = 1) => ({ type: 'choice', choice: pick, probabilities: Object.fromEntries(Object.keys(q.criteria).map(k => [k, k === pick ? p : (1 - p) / Math.max(1, Object.keys(q.criteria).length - 1)])) })
 

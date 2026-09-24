@@ -4,9 +4,10 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
 import { bindCandidates, fits, searchLike, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
+import { collectedItem, itemKey } from './collect.mjs'
 
 const now = () => performance.now()
-export const AGENT_PROTOCOL = 2
+export const AGENT_PROTOCOL = 3
 export const OBSERVE_TIMEOUT_MS = Number(process.env.JEV_OBSERVE_TIMEOUT_MS ?? 5000)
 const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
 // Enter in a form submits it: judge it as its submit control (or an unnamed
@@ -23,17 +24,18 @@ const originOf = url => { try { return new URL(url).origin } catch { return null
 const popups = page => page.elements.filter(e => e.role === 'dialog' || e.role === 'option' || e.role === 'listbox' || e.role === 'menu').map(e => `${e.role}:${e.name}`)
 const sameTarget = (judged, page, ref) => { const a = judged.elements.find(e => e.ref === ref), b = page.elements.find(e => e.ref === ref); return !!a && !!b && judged.documentId === page.documentId && judged.url === page.url && JSON.stringify([a.role, a.name, a.context, a.dialog]) === JSON.stringify([b.role, b.name, b.context, b.dialog]) }
 
-export async function runTask(task, { call, ask, handoff, emit = () => {}, signal, files = () => { throw new RunError('FILE_UNAUTHORIZED', 'No file manifest.') } }) {
+export async function runTask(task, { call, ask, handoff, emit = () => {}, signal, record = {}, files = () => { throw new RunError('FILE_UNAUTHORIZED', 'No file manifest.') } }) {
   const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
-  const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
+  const history = record.history ??= [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = record.textCache ??= new Map()
+  record.items ??= []; record.skipped ??= 0; record.visited ??= new Set(); record.processedDetails ??= new Set()
   const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
   let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false, pendingInputs = false
-  const taskTabs = new Map(), seenValues = new Map(), refused = new Map()
+  const taskTabs = record.taskTabs ??= new Map(), seenValues = record.seenValues ??= new Map(), refused = record.refused ??= new Map()
   const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }
   // handoffs: every caller round trip with wall-clock times (graders check that
   // an approved confirm precedes each commit).
   const handoffLog = []
-  const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, taskTabs: [...taskTabs.keys()], metrics: m, handoffs: handoffLog, ...extra } }
+  const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, taskTabs: [...taskTabs.keys()], metrics: m, handoffs: handoffLog, ...(task.kind === 'collect' ? { items: record.items.slice(), skipped: record.skipped, visited: record.visited.size } : {}), ...extra } }
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
   // A page read that hangs (content script not answering) is abandoned after
   // OBSERVE_TIMEOUT_MS and treated like an unreachable page.
@@ -55,7 +57,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         if (attempt >= 150 || !['SEND_MESSAGE_FAILED', 'NO_RECEIVER', 'TIMEOUT', 'OBSERVE_TIMEOUT'].includes(error.code) && !/receiving end|message port|context invalidated/i.test(error.message ?? '')) throw new RunError(error.code ?? 'OBSERVE_FAILED', `Page could not be observed: ${error.message ?? error}`)
         // Before any action, a tab whose content scripts never started is
         // reloaded (a read-only GET of the start page), at most twice.
-        if (!history.length && m.steps === 0 && (error.code === 'OBSERVE_TIMEOUT' ? timeouts <= 2 : attempt === 20 || attempt === 60)) {
+        if (task.startUrl && !history.length && m.steps === 0 && (error.code === 'OBSERVE_TIMEOUT' ? timeouts <= 2 : attempt === 20 || attempt === 60)) {
           emit({ event: 'startup_reload', attempt })
           await timed('navigationMs', () => call('navigate', { tabId, url: task.startUrl, timeoutMs: 15000 }, signal)).catch(() => {})
         }
@@ -64,7 +66,11 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     }
     page.tabs = taskTabs.size > 1 ? [...taskTabs.values()].map(t => ({ id: t.id, title: t.title ?? '', url: t.url ?? '', current: t.id === tabId })) : []
     // Secret plaintext typed into a non-password field must not re-enter state.
-    for (const secret of secrets) { page.text = page.text.split(secret).join('‹secret›'); for (const e of page.elements) if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›') }
+    for (const secret of secrets) {
+      page.text = page.text.split(secret).join('‹secret›')
+      for (const e of page.elements) if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›')
+      if (page.detail) for (const key of ['title', 'author', 'date', 'url', 'text']) if (typeof page.detail[key] === 'string') page.detail[key] = page.detail[key].split(secret).join('‹secret›')
+    }
     for (const e of page.elements) if ((refused.get(`${page.documentId}|${e.ref}`) ?? 0) >= 2) e.unreachable = true
     // After secret redaction: remembered values never include secrets.
     for (const v of pageValues(page.text)) { seenValues.delete(v); seenValues.set(v, { text: v, source: page.title }) }
@@ -186,6 +192,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     const hasSubmitter = el?.form ? page.elements.some(e => e.form === el.form && submitLike(e)) : op === 'type' && page.elements.some(e => !e.form && submitLike(e))
     if (['type', 'select', 'check'].includes(op) && (hasSubmitter || postcondition === 'unmet')) pendingInputs = true
     if (op === 'key' || entry.navigated || op === 'click' && submitLike(el)) pendingInputs = false
+    if (task.kind === 'collect' && op === 'click' && page.detail?.text && (page.detail.text !== before.detail?.text || page.url !== before.url)) record.activeSource = itemKey(el)
+    if (op === 'close_dialog' || op === 'back') record.activeSource = null
     stalls = changed || op === 'wait' ? 0 : stalls + 1
     // A click that changed nothing is a failed target, like a refused one.
     if (op === 'click' && !changed && el) { const key = `${page.documentId}|${el.ref}`; refused.set(key, (refused.get(key) ?? 0) + 1) }
@@ -209,7 +217,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     emit({ event: 'auto_commit', ref: el.ref, name: el.name })
     await exec('key', now2, { key: 'Enter' })
   }
-  const OP = { CLICK: 'click', PRESS_ENTER: 'key', SCROLL_DOWN: 'scroll_down', SCROLL_UP: 'scroll_up', WAIT: 'wait', GO_BACK: 'back' }
+  const OP = { CLICK: 'click', PRESS_ENTER: 'key', SCROLL_DOWN: 'scroll_down', SCROLL_UP: 'scroll_up', WAIT: 'wait', GO_BACK: 'back', CLOSE_DIALOG: 'close_dialog' }
   // Runs a model- or caller-selected operation after its risk checks.
   const act = async (op, target, el, answers, built) => {
     if (op === 'DONE') return result('done', { verification: 'model_done' })
@@ -298,12 +306,12 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   }
 
   try {
-    const opened = await timed('navigationMs', () => call('tabs', { action: 'new', url: 'about:blank' }, signal))
-    tabId = opened.tabId
+    const opened = record.tabId ? { tabId: record.tabId } : await timed('navigationMs', () => call('tabs', { action: 'new', url: 'about:blank' }, signal))
+    tabId = opened.tabId; record.tabId = tabId
     if (!Number.isInteger(tabId)) throw new RunError('TAB', 'New tab did not return an id.')
     emit({ event: 'tab', tabId }); taskTabs.set(tabId, { id: tabId })
     // A slow load event is not fatal: observation retries until the document answers.
-    await timed('navigationMs', () => call('navigate', { tabId, url: task.startUrl, timeoutMs: 15000 }, signal)).catch(error => { if (error.code !== 'TIMEOUT') throw error; emit({ event: 'navigation_timeout' }) })
+    if (task.startUrl) await timed('navigationMs', () => call('navigate', { tabId, url: task.startUrl, timeoutMs: 15000 }, signal)).catch(error => { if (error.code !== 'TIMEOUT') throw error; emit({ event: 'navigation_timeout' }) })
     agentStart = now()
     await observe()
     for (;;) {
@@ -315,13 +323,27 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         if (!ok.approve) return result('blocked', { reason: 'origin_denied' })
         allowed.add(originOf(page.url))
       }
-      const built = build(page, task, history, [...seenValues.values()])
+      if (task.kind === 'collect' && record.items.length >= task.collect.count) return result('done', { verification: 'evidence_quoted' })
+      const built = build(page, task, history, [...seenValues.values()], record)
       m.jevRequests++
       const response = await timed('jevMs', () => ask(built.payload, { signal }))
       if (Number.isFinite(response.usage?.input_tokens)) m.jevInputTokens += response.usage.input_tokens; else m.jevUnknownUsage++
       const answers = normalize(built.payload.questions, response.answers), invalid = invalidAnswers(built.payload.questions, answers)
       if (invalid.has('operation')) throw new RunError('BAD_ANSWER', 'Invalid operation answer; nothing executed.')
       if (invalid.size) emit({ event: 'invalid_answers', ids: [...invalid] })
+      if (task.kind === 'collect' && built.payload.questions.collect_fit) {
+        const detail = page.detail, key = `${detail.url}|${detail.title}|${record.activeSource}`
+        if (invalid.has('collect_fit')) throw new RunError('BAD_ANSWER', 'Invalid item fitness answer; item was not recorded.')
+        if (answers.collect_fit.noul >= 0.7) {
+          const item = collectedItem(detail)
+          if (!record.items.some(x => x.evidenceIds[0] === item.evidenceIds[0])) record.items.push(item)
+          emit({ event: 'collected', evidenceIds: item.evidenceIds, title: item.title, url: item.url })
+        } else { record.skipped++; emit({ event: 'skipped_item', url: detail.url, fitness: answers.collect_fit.noul }) }
+        record.visited.add(record.activeSource); record.processedDetails.add(key)
+        if (record.items.length >= task.collect.count) return result('done', { verification: 'evidence_quoted' })
+        if (detail.kind === 'dialog') { await exec('close_dialog', null); continue }
+        if (detail.kind === 'page') { await exec('back', null); continue }
+      }
       // Bindings first: each supplied input had its own question.
       const accepted = [], drops = []
       for (const [q, b] of Object.entries(built.binds)) {
@@ -402,6 +424,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         const tgt = picked.id ? built.targets[picked.op][picked.id] : null
         const out = await act(picked.op, tgt, tgt && page.elements.find(x => x.ref === tgt.ref), answers, built); if (out) return out; continue
       }
+      if (op === 'DONE' && task.kind === 'collect') return result('blocked', { reason: 'collection_exhausted' })
       if (op === 'DONE' && navPending) { navPending = false; emit({ event: 'route', why: 'navigation_pending', op }); await delay(500, undefined, { signal }); await observe(); continue }
       // Search/submit-like targets commit a query or form: use the stricter gate.
       const committing = level === 'R2' && (op === 'PRESS_ENTER' || el?.submit || /\b(search|submit|apply|find)\b/i.test(el?.name ?? ''))

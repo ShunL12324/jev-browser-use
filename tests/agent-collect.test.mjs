@@ -1,0 +1,86 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { runTask } from '../packages/bridge/src/agent/loop.mjs'
+import { startTask, closeSession } from '../packages/bridge/dist/agent/task.mjs'
+
+const origin = 'http://127.0.0.1:17441'
+const choice = (q, id) => ({ type: 'choice', choice: id, probabilities: Object.fromEntries(Object.keys(q.criteria).map(k => [k, k === id ? 1 : 0])) })
+const button = (ref, name, item) => ({ ref, role: 'button', name, item, tag: 'button', inputType: null, value: null, checked: null, selected: null, expanded: null, hasPopup: null, disabled: false, readonly: false, modalBlocked: false, dialog: null, context: [], href: null, editable: false, password: false, submit: false, formMethod: 'get', payment: false, inView: true, guard: 'g' })
+const cards = [button('e1', 'Open item one', 'Item one'), button('e2', 'Open item two', 'Item two'), button('e3', 'Open item three', 'Item three')]
+const details = [
+  { kind: 'dialog', title: 'Item one', author: 'Ada', date: '2026-09-24', url: origin + '/one', text: 'Item one\nVideo player' },
+  { kind: 'dialog', title: 'Item two', author: 'Ben', date: '2026-09-24', url: origin + '/two', text: 'Item two\nA text post about the topic.' },
+  { kind: 'dialog', title: 'Item three', author: 'Cal', date: '2026-09-24', url: origin + '/three', text: 'Item three\nAnother text post about the topic.' }
+]
+const task = { goal: 'Collect two text posts about the topic', kind: 'collect', collect: { count: 2, item: 'text posts about the topic, not video' }, startUrl: origin + '/', allowedOrigins: [origin], inputs: {}, irreversible: 'none', llm: 'none', budgets: { maxSteps: 20, maxJevRequests: 20, timeoutMs: 10000 } }
+
+test('collect skips unfit detail, quotes two DOM items, closes modal and excludes visited cards', async () => {
+  let open = -1, clicks = [], closes = 0
+  const call = async (name, args) => {
+    if (name === 'tabs') return { tabId: 7 }
+    if (name === 'navigate') return {}
+    if (args.action === 'agent_observe') return { agentProtocol: 3, documentId: 'd1', url: origin + '/', title: 'Feed', text: open < 0 ? 'Three cards' : details[open].text,
+      detail: open < 0 ? null : details[open], scroll: { y: 0, height: 800, viewport: 800 }, marker: `m${open}`,
+      elements: open < 0 ? structuredClone(cards) : [button('e9', 'Close', '')], omitted: 0 }
+    if (args.action === 'agent_settle') return { navigating: false }
+    if (args.op === 'click') { open = Number(args.ref.slice(1)) - 1; clicks.push(args.ref) }
+    if (args.op === 'close_dialog') { open = -1; closes++ }
+    return { execution: 'returned' }
+  }
+  const seen = []
+  const ask = async payload => {
+    seen.push(payload.state)
+    const answers = {}
+    for (const [id, q] of Object.entries(payload.questions)) {
+      if (q.type === 'noul') answers[id] = { type: 'noul', noul: open === 0 ? 0.05 : 0.99 }
+      else if (id === 'operation') answers[id] = choice(q, open >= 0 ? 'CLOSE_DIALOG' : 'CLICK')
+      else if (id === 'target_CLICK') answers[id] = choice(q, Object.keys(q.criteria)[0])
+      else answers[id] = choice(q, Object.keys(q.criteria)[0])
+    }
+    return { answers, usage: { input_tokens: 5 } }
+  }
+  const result = await runTask(task, { call, ask, handoff: async () => ({}) })
+  assert.equal(result.status, 'done')
+  assert.deepEqual(clicks, ['e1', 'e2', 'e3'])
+  assert.equal(closes, 2)
+  assert.equal(result.skipped, 1)
+  assert.deepEqual(result.items.map(i => i.title), ['Item two', 'Item three'])
+  assert.equal(result.items[0].text, details[1].text)
+  assert.match(result.items[0].evidenceIds[0], /^ev_[a-f0-9]{16}$/)
+  assert.ok(seen.some(s => s.collection?.visited === 1 && s.elements.some(e => e.visited)))
+})
+
+test('a second start resumes the same session tab and exposes prior actions to Jev', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'jev-task-session-'))
+  let text = 'Initial', navigate = 0, tabs = 0, close = 0, asks = 0, sawHistory = false
+  const host = { invoke: async (name, args) => {
+    if (name === 'tabs' && args.action === 'new') { tabs++; return { tabId: 9 } }
+    if (name === 'tabs' && args.action === 'close') { close++; return { ok: true } }
+    if (name === 'navigate') { navigate++; return {} }
+    if (args.action === 'agent_observe') return { agentProtocol: 3, documentId: 'd1', url: origin + '/', title: 'Page', text, detail: null, scroll: { y: 0, height: 800, viewport: 800 }, marker: text,
+      elements: [button('e1', 'Reveal', '')], omitted: 0 }
+    if (args.action === 'agent_settle') return { navigating: false }
+    if (args.op === 'click') text = 'Revealed'
+    return { execution: 'returned' }
+  } }
+  const ask = async payload => {
+    asks++
+    if (asks === 3) sawHistory = payload.state.recentActions.some(a => a.target === 'Reveal')
+    const answers = Object.fromEntries(Object.entries(payload.questions).map(([id, q]) => [id, choice(q, id === 'operation' ? asks === 1 ? 'CLICK' : 'DONE' : Object.keys(q.criteria)[0])]))
+    return { answers, usage: { input_tokens: 1 } }
+  }
+  try {
+    const options = { host, ask, ledgerPath: join(root, 'budget.json'), traceDirectory: root, waitMs: 5000 }
+    const first = await startTask({ ...task, kind: 'navigate', collect: undefined }, options)
+    assert.equal(first.status, 'done')
+    const second = await startTask({ goal: 'Check the revealed state', sessionId: first.sessionId, allowedOrigins: [origin] }, options)
+    assert.equal(second.status, 'done')
+    assert.equal(second.tabId, first.tabId)
+    assert.equal(tabs, 1); assert.equal(navigate, 1); assert.ok(sawHistory)
+    assert.equal((await closeSession({ sessionId: first.sessionId }, { host })).status, 'closed')
+    assert.equal(close, 1)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})

@@ -45,6 +45,22 @@ function visibleText(limit = 6000) {
   if (document.body) visit(document.body)
   return out.join('\n').slice(0, limit)
 }
+const shown = (el: Element) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' }
+// Read the active detail surface, never the surrounding feed. Semantic HTML
+// and ARIA identify the surface; no site-specific structure is assumed.
+function detail() {
+  const dialogs = Array.from(document.querySelectorAll('dialog[open],[role="dialog"][aria-modal="true"]')).filter(shown)
+  const articles = Array.from(document.querySelectorAll('article,[role="article"]')).filter(shown)
+  const root = (dialogs.at(-1) || (articles.length === 1 ? articles[0] : null)) as HTMLElement | null
+  if (!root) return null
+  const heading = root.querySelector('h1,h2,h3,[role="heading"]') as HTMLElement | null
+  const author = root.querySelector('[rel="author"],[itemprop="author"],[data-author]') as HTMLElement | null
+  const date = root.querySelector('time,[itemprop="datePublished"]') as HTMLElement | null
+  const link = root.querySelector('a[rel="canonical"]') as HTMLAnchorElement | null
+  return { kind: dialogs.length ? 'dialog' : 'page', title: heading?.innerText?.trim() || root.getAttribute('aria-label') || document.title,
+    author: author?.innerText?.trim() || author?.getAttribute('data-author') || '', date: date?.getAttribute('datetime') || date?.innerText?.trim() || '',
+    url: link?.href && link.href !== location.href ? link.href : location.href, text: root.innerText?.trim().slice(0, 16000) ?? '' }
+}
 // Elements within one viewport height of the visible area, nearest first,
 // capped; the rest is reported as omitted (reachable by scrolling).
 // Month/grid label for a cell (e.g. "November 2026"): the grid's own name,
@@ -91,6 +107,7 @@ function observe(limit: number) {
   elements.sort((a, b) => a.top - b.top || a.left - b.left)
   const marker = hash(JSON.stringify([location.href, scrollY, elements.map(e => [e.ref, e.role, e.name, e.value, e.checked, e.expanded, e.disabled])]))
   return { ok: true, agentProtocol: AGENT_PROTOCOL, build: BUILD_ID, documentId, url: location.href, title: document.title, readyState: document.readyState, text: visibleText(),
+    detail: detail(),
     dialogs: recentDialogs(),
     scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - picked.length, marker }
 }
@@ -187,6 +204,15 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
       case 'scroll_down': scrollBy(0, Math.round(innerHeight * 0.8)); break
       case 'scroll_up': scrollBy(0, -Math.round(innerHeight * 0.8)); break
       case 'back': history.back(); break
+      case 'close_dialog': {
+        const dialogs = Array.from(document.querySelectorAll('dialog[open],[role="dialog"][aria-modal="true"]')).filter(shown)
+        const dialog = dialogs.at(-1) as HTMLElement | undefined
+        if (!dialog) return reject('NO_DIALOG')
+        const close = Array.from(dialog.querySelectorAll('button,[role="button"]')).find(node => /^(close|dismiss|cancel|back|×|✕|x|关闭|返回)$/i.test((node.getAttribute('aria-label') || (node as HTMLElement).innerText || '').trim())) as HTMLElement | undefined
+        if (close) press(close)
+        else { key(dialog, 'Escape'); if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close() }
+        break
+      }
       case 'wait': break
       default: return reject('UNSUPPORTED')
     }

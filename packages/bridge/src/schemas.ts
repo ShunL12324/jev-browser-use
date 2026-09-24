@@ -134,7 +134,7 @@ export const Shapes = {
   request: {
     url: z.string().describe('Request URL.'),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']).optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     body: z.string().optional().describe('Raw string body. Mutually exclusive with json.'),
     json: z.any().optional().describe('JSON-serializable payload. Sets Content-Type to application/json.'),
     ...TabIdShape
