@@ -49,7 +49,7 @@ const shown = (el: Element) => { const r = el.getBoundingClientRect(); return r.
 // Read the active detail surface, never the surrounding feed. Semantic HTML
 // and ARIA identify the surface; no site-specific structure is assumed.
 function detail() {
-  const dialogs = Array.from(document.querySelectorAll('dialog[open],[role="dialog"][aria-modal="true"]')).filter(shown)
+  const dialogs = Array.from(document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"]')).filter(shown)
   const articles = Array.from(document.querySelectorAll('article,[role="article"]')).filter(shown)
   const root = (dialogs.at(-1) || (articles.length === 1 ? articles[0] : null)) as HTMLElement | null
   if (!root) return null
@@ -205,7 +205,7 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
       case 'scroll_up': scrollBy(0, -Math.round(innerHeight * 0.8)); break
       case 'back': history.back(); break
       case 'close_dialog': {
-        const dialogs = Array.from(document.querySelectorAll('dialog[open],[role="dialog"][aria-modal="true"]')).filter(shown)
+        const dialogs = Array.from(document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"]')).filter(shown)
         const dialog = dialogs.at(-1) as HTMLElement | undefined
         if (!dialog) return reject('NO_DIALOG')
         const close = Array.from(dialog.querySelectorAll('button,[role="button"]')).find(node => /^(close|dismiss|cancel|back|×|✕|x|关闭|返回)$/i.test((node.getAttribute('aria-label') || (node as HTMLElement).innerText || '').trim())) as HTMLElement | undefined
