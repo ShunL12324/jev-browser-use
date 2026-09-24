@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runTask } from '../packages/bridge/src/agent/loop.mjs'
 import { startTask, closeSession } from '../packages/bridge/dist/agent/task.mjs'
+import { build } from '../packages/bridge/src/agent/jev.mjs'
 
 const origin = 'http://127.0.0.1:17441'
 const choice = (q, id) => ({ type: 'choice', choice: id, probabilities: Object.fromEntries(Object.keys(q.criteria).map(k => [k, k === id ? 1 : 0])) })
@@ -54,6 +55,37 @@ test('collect skips unfit and duplicate detail, quotes two DOM items, closes mod
   assert.ok(seen.some(s => s.collection?.visited === 1 && s.elements.some(e => e.visited)))
 })
 
+test('independent card fitness heads open the first fit link despite a split target Choice', async () => {
+  const links = ['Video hill repeats', 'Trail etiquette notes', 'Night running notes'].map((name, i) => ({ ...button(`e${i + 1}`, name, null), role: 'link', tag: 'a', href: origin + `/explore/${i + 1}` }))
+  const record = { items: [], skipped: 0, visited: new Set(), processedDetails: new Set() }
+  const page = { agentProtocol: 3, documentId: 'd1', url: origin + '/', title: 'Feed', text: 'Results', detail: null, scroll: { y: 0, height: 800, viewport: 800 }, marker: 'list', elements: links, omitted: 0 }
+  const prepared = build(structuredClone(page), { ...task, collect: { count: 1, item: 'text posts about the topic, not video' } }, [], [], record)
+  assert.equal(prepared.cards.length, 3)
+  assert.deepEqual(prepared.cards.map(c => c.question), ['card_fit_1', 'card_fit_2', 'card_fit_3'])
+  let open = -1, clicked = []
+  const result = await runTask({ ...task, collect: { count: 1, item: 'text posts about the topic, not video' } }, {
+    call: async (name, args) => {
+      if (name === 'tabs') return { tabId: 3 }
+      if (name === 'navigate') return {}
+      if (args.action === 'agent_observe') return open < 0 ? structuredClone(page) : { ...page, url: origin + '/explore/2', detail: { kind: 'dialog', title: 'Trail etiquette notes', author: 'Ada', date: '2026-09-24', url: origin + '/explore/2', text: 'Trail etiquette notes\nA full text post about the topic.' }, marker: 'detail', elements: [button('e9', 'Close', '')] }
+      if (args.action === 'agent_settle') return { navigating: false }
+      if (args.op === 'click') { clicked.push(args.ref); open = Number(args.ref.slice(1)) - 1 }
+      return { execution: 'returned' }
+    },
+    ask: async payload => ({ answers: Object.fromEntries(Object.entries(payload.questions).map(([id, q]) => {
+      if (q.type === 'noul') return [id, { type: 'noul', noul: id === 'card_fit_1' ? 0.05 : id.startsWith('card_fit_') ? 0.34 : 0.95 }]
+      if (id === 'operation') return [id, choice(q, 'CLICK')]
+      if (id === 'target_CLICK' && open < 0) return [id, { type: 'choice', choice: 'e2', probabilities: { e1: 0.33, e2: 0.34, e3: 0.33 } }]
+      return [id, choice(q, Object.keys(q.criteria)[0])]
+    })), usage: { input_tokens: 1 } }),
+    handoff: async () => ({})
+  })
+  assert.equal(result.status, 'done')
+  assert.deepEqual(clicked, ['e2'])
+  assert.equal(result.items.length, 1)
+  assert.equal(result.skipped, 1)
+})
+
 test('a second start resumes the same session tab and exposes prior actions to Jev', async () => {
   const root = mkdtempSync(join(tmpdir(), 'jev-task-session-'))
   let text = 'Initial', navigate = 0, tabs = 0, close = 0, asks = 0, sawHistory = false
@@ -83,6 +115,26 @@ test('a second start resumes the same session tab and exposes prior actions to J
     assert.equal(tabs, 1); assert.equal(navigate, 1); assert.ok(sawHistory)
     assert.equal((await closeSession({ sessionId: first.sessionId }, { host })).status, 'closed')
     assert.equal(close, 1)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('an idle browser session expires and closes its tab', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'jev-task-idle-'))
+  let closed = 0
+  const host = { invoke: async (name, args) => {
+    if (name === 'tabs' && args.action === 'new') return { tabId: 18 }
+    if (name === 'tabs' && args.action === 'close') { closed++; return { ok: true } }
+    if (args.action === 'agent_observe') return { agentProtocol: 3, documentId: 'd1', url: origin + '/', title: 'Page', text: 'Ready', detail: null,
+      scroll: { y: 0, height: 800, viewport: 800 }, marker: 'ready', elements: [], omitted: 0 }
+    return { execution: 'returned' }
+  } }
+  try {
+    const options = { host, ask: async p => ({ answers: { operation: choice(p.questions.operation, 'DONE') }, usage: { input_tokens: 1 } }), ledgerPath: join(root, 'budget.json'), traceDirectory: root, waitMs: 5000, sessionIdleMs: 30 }
+    const first = await startTask({ ...task, kind: 'navigate', collect: undefined }, options)
+    assert.equal(first.status, 'done')
+    await new Promise(resolve => setTimeout(resolve, 80))
+    assert.equal(closed, 1)
+    await assert.rejects(startTask({ goal: 'Resume', sessionId: first.sessionId, allowedOrigins: [origin] }, options), { code: 'NO_SESSION' })
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

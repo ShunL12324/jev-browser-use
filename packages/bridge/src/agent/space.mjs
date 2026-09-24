@@ -104,17 +104,23 @@ export function irreversible(e, page) {
   if (GENERIC.test(e.name) && finalStep && (e.submit || e.dialog || e.formMethod === 'post' || e.tag === 'button')) return 'generic_final_step'
   return null
 }
+// A collection candidate is a readable list entry. Links must stay on the
+// current origin; button cards must carry their title as leading item text.
+// Form, dialog and commit controls keep their normal risk tier.
+export function collectionCard(e, page) {
+  if (!e || !e.name || e.name.length < 8 || e.form || e.submit || e.dialog || e.editable || e.payment || e.modalBlocked || irreversible(e, page)) return false
+  if (/\b(?:buy|pay|purchase|delete|remove|send|submit|log\s*in|sign\s*in|register|unsubscribe)\b/i.test(e.name)) return false
+  if (e.role === 'link' && e.href) {
+    try { return new URL(e.href).origin === new URL(page.url).origin } catch { return false }
+  }
+  return (e.role === 'button' || e.tag === 'button') && !!e.item && e.item.replace(/^[^\p{L}\p{N}]+/u, '').startsWith(e.name)
+}
 export function tier(op, e, page, context = {}) {
   if (['SCROLL_DOWN', 'SCROLL_UP', 'WAIT', 'SWITCH_TAB', 'CLOSE_TAB', 'CLOSE_DIALOG'].includes(op)) return 'R0'
   if (['TYPE_TEXT', 'SELECT', 'BIND'].includes(op)) return 'R1'
   if (op === 'GO_BACK') return 'R2'
   if (irreversible(e, page)) return 'R3'
-  // During collection, a titled list card is an entry point to reading its
-  // detail. The target must be the card itself, outside forms and dialogs;
-  // shorter row actions (Cancel, Delete, etc.) retain their normal tier.
-  if (context.collect && op === 'CLICK' && e?.item && e.name?.length >= 12 && e.item.replace(/^[^\p{L}\p{N}]+/u, '').startsWith(e.name)
-    && (e.role === 'button' || e.tag === 'button') && !e.form && !e.submit && !e.dialog && !e.editable && !e.payment
-    && !STRONG.test(e.name) && !GENERIC.test(e.name)) return 'R0'
+  if (context.collect && op === 'CLICK' && collectionCard(e, page)) return 'R0'
   if (op === 'PRESS_ENTER') return e?.form && irreversible(page.elements.find(x => x.submit && x.form === e.form) ?? { ...e, submit: true, name: '', editable: false }, page) ? 'R3' : 'R2'
   // Dismissing an overlay (close / no thanks / not now) changes no data.
   if (/^(close|dismiss|no,? thanks|not now|maybe later|skip|×|✕|x)$/i.test(e.name.trim())) return 'R0'

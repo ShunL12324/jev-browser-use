@@ -414,11 +414,49 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         emit({ event: 'post_batch', consumed: postBatch })
         if (!postBatch) continue
       }
+      if (task.kind === 'collect' && built.cards.length) {
+        if (opAnswer.choice === 'CLICK' && opAnswer.probabilities.CLICK >= 0.4 && !pendingInputs) {
+          const candidates = []
+          for (const card of built.cards) {
+            if (invalid.has(card.question)) continue
+            const fitness = answers[card.question]?.noul
+            const candidate = page.elements.find(e => e.ref === card.ref)
+            if (!candidate || !Number.isFinite(fitness)) continue
+            // A visible video marker lets the model reject a video without
+            // opening it. Low confidence from a short text title alone does
+            // not prove unfitness; the opened detail gets a second judgment.
+            const videoCue = /(?:▶|\bvideo\b|\bwatch\b|\bclip\b)/i.test(`${candidate.name} ${candidate.item ?? ''}`)
+            if (fitness <= 0.2 && videoCue) {
+              if (!record.visited.has(candidate.visitKey)) { record.visited.add(candidate.visitKey); record.skipped++; emit({ event: 'skipped_card', ref: candidate.ref, fitness }) }
+            } else candidates.push({ card, candidate, fitness })
+          }
+          // Prefer clear positives. When titles do not reveal enough, inspect
+          // the first plausible or uncertain card and judge its full detail.
+          // Page order breaks ties at each threshold.
+          const chosen = candidates.find(c => c.fitness >= 0.7) ?? candidates.find(c => c.fitness >= 0.25) ?? candidates.find(c => c.fitness >= 0.05)
+          if (chosen) {
+            const { card, candidate, fitness } = chosen
+            const target = built.targets.CLICK[card.ref]
+            if (target) {
+              m.decisions.R0 = (m.decisions.R0 ?? 0) + 1
+              emit({ event: 'collection_card', ref: card.ref, fitness, pageOrder: true })
+              const outcome = await act('CLICK', target, candidate, answers, built)
+              if (outcome) return outcome
+              continue
+            }
+          }
+        }
+      }
       let op = opAnswer.choice, id = head?.choice, el
       if (invalid.has(`target_${op}`)) throw new RunError('BAD_ANSWER', `Invalid ${op} target answer; nothing executed.`)
       const pOp = opAnswer.probabilities[op], p = Math.min(pOp, head ? head.probabilities[id] : 1)
       const target = id ? built.targets[op][id] : null
       el = target && page.elements.find(e => e.ref === target.ref)
+      if (task.kind === 'collect' && op === 'CLICK' && el && built.cards.some(c => c.ref === el.ref)) {
+        emit({ event: 'route', why: 'candidate_fitness_below_gate', ref: el.ref })
+        if (built.ops.SCROLL_DOWN) { await act('SCROLL_DOWN', null, null); continue }
+        return result('blocked', { reason: 'no_fit_card' })
+      }
       const level = op === 'DONE' || op === 'BLOCKED' ? 'R2' : tier(op, el, page, { collect: task.kind === 'collect' })
       m.decisions[level] = (m.decisions[level] ?? 0) + 1
       const repeatKey = JSON.stringify([page.marker, op, id])

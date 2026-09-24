@@ -59,7 +59,7 @@ function wait(session, waitMs) {
 }
 const view = s => s.result ? { taskId: s.id, sessionId: s.browserSession.id, ...s.result, tracePath: s.tracePath } : s.pending ? { status: 'needs_input', taskId: s.id, sessionId: s.browserSession.id, handoff: s.pending.request } : { status: 'running', taskId: s.id, sessionId: s.browserSession.id }
 
-export async function startTask(raw, { host, ask = askJev, ledgerPath = process.env.JEV_PRODUCT_LEDGER ?? PRODUCT_LEDGER, traceDirectory = process.env.JEV_TASK_TRACE_DIR ?? '/tmp/jev-product/traces', waitMs = 50000, handoff } = {}) {
+export async function startTask(raw, { host, ask = askJev, ledgerPath = process.env.JEV_PRODUCT_LEDGER ?? PRODUCT_LEDGER, traceDirectory = process.env.JEV_TASK_TRACE_DIR ?? '/tmp/jev-product/traces', waitMs = 50000, sessionIdleMs = 600000, handoff } = {}) {
   const existing = raw.sessionId ? taskSessions.get(raw.sessionId) : null
   if (raw.sessionId && !existing) throw new RunError('NO_SESSION', 'Unknown or closed sessionId.')
   if (existing?.busy) throw new RunError('SESSION_BUSY', 'This session already has a running task.')
@@ -83,10 +83,15 @@ export async function startTask(raw, { host, ask = askJev, ledgerPath = process.
   const previous = !existing && task.keepTabs !== 'all' ? previousFinalTab : null
   if (previous !== null) {
     previousFinalTab = null
-    if (previousFinalSessionId) taskSessions.delete(previousFinalSessionId)
+    if (previousFinalSessionId) {
+      const old = taskSessions.get(previousFinalSessionId)
+      if (old?.idleTimer) clearTimeout(old.idleTimer)
+      taskSessions.delete(previousFinalSessionId)
+    }
     previousFinalSessionId = null
   }
   const controller = new AbortController(), session = { id, tracePath, controller, pending: null, result: null, wake: null, browserSession }
+  if (browserSession.idleTimer) { clearTimeout(browserSession.idleTimer); browserSession.idleTimer = null }
   browserSession.busy = true; browserSession.allowedOrigins = task.allowedOrigins
   taskSessions.set(browserSession.id, browserSession)
   sessions.set(id, session)
@@ -133,8 +138,13 @@ export async function startTask(raw, { host, ask = askJev, ledgerPath = process.
     browserSession.record.tabId = task.keepTabs === 'none' ? null : result.tabId
     if (task.keepTabs === 'final' && Number.isInteger(result.tabId)) { previousFinalTab = result.tabId; previousFinalSessionId = browserSession.id }
     if (task.keepTabs === 'none') taskSessions.delete(browserSession.id)
-    session.result = result; emit({ event: 'terminal', ...result, closedTabs: close }); session.wake?.()
     browserSession.busy = false
+    if (taskSessions.get(browserSession.id) === browserSession) {
+      browserSession.idleTimer = setTimeout(() => {
+        if (!browserSession.busy && taskSessions.get(browserSession.id) === browserSession) closeSession({ sessionId: browserSession.id }, { host }).catch(() => {})
+      }, sessionIdleMs).unref()
+    }
+    session.result = result; emit({ event: 'terminal', ...result, closedTabs: close }); session.wake?.()
     setTimeout(() => sessions.delete(id), 600000).unref()
   })
   return wait(session, waitMs)
@@ -162,6 +172,7 @@ export async function closeSession({ sessionId }, { host } = {}) {
   const s = taskSessions.get(sessionId)
   if (!s) throw new RunError('NO_SESSION', 'Unknown or closed sessionId.')
   if (s.busy) throw new RunError('SESSION_BUSY', 'Cancel the running task before closing its session.')
+  if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null }
   const tabs = new Set([...(s.record.taskTabs?.keys() ?? []), s.record.tabId].filter(Number.isInteger))
   for (const tabId of tabs) await host.invoke('tabs', { action: 'close', tabId }, tabId).catch(() => {})
   if (previousFinalSessionId === sessionId) { previousFinalSessionId = null; previousFinalTab = null }

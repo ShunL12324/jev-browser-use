@@ -57,9 +57,13 @@ function detail() {
   const author = root.querySelector('[rel="author"],[itemprop="author"],[data-author],.author') as HTMLElement | null
   const date = root.querySelector('time,[itemprop="datePublished"]') as HTMLElement | null
   const link = root.querySelector('a[rel="canonical"]') as HTMLAnchorElement | null
+  const text = root.innerText?.trim() ?? ''
+  // An unrelated login or promo dialog can cover a post. Do not treat that
+  // overlay as a collected item merely because it has role=dialog.
+  if (dialogs.length && !((text.length >= 20 && (author || date || root.querySelector('article,[role="article"]'))) || text.length >= 240)) return null
   return { kind: dialogs.length ? 'dialog' : 'page', title: heading?.innerText?.trim() || root.getAttribute('aria-label') || document.title,
     author: author?.innerText?.trim() || author?.getAttribute('data-author') || '', date: date?.getAttribute('datetime') || date?.innerText?.trim() || '',
-    url: link?.href && link.href !== location.href ? link.href : location.href, text: root.innerText?.trim().slice(0, 16000) ?? '' }
+    url: link?.href && link.href !== location.href ? link.href : location.href, text: text.slice(0, 16000) }
 }
 // Elements within one viewport height of the visible area, nearest first,
 // capped; the rest is reported as omitted (reachable by scrolling).
