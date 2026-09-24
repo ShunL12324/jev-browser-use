@@ -186,3 +186,5 @@ r3 开发期复测（T33 评测站私有副本，standard 变体，atlas/birch�
 - 用户 Chrome 上 complex-forms 的 12.7–14.1 s 中约 6.3 s 是 tester 回答两次确认的等待（`handoffWaitMs`）；非 handoff 时间约 7.3 s，settle 约 0.8 s，与 WSL 相同。窗口 `visibilityState` 为 visible、未获得焦点，没有观察到节流。
 
 第二轮修正：agent 窗口在整个 bridge 生命周期内复用（上一个任务的最终 tab 在新任务的 tab 出现之后才关闭，窗口不会因为变空而关闭再重开）；表单外的日期类输入框（名称含 date/departure/return/check-in 等）输入后自动按一次 Enter 提交所填日期（表单内的 Enter 会提交表单，留给模型决定）；对话框中的 Done/OK/Apply/Select 类按钮属于 R1；没有造成任何可见变化的点击计入同一目标的拒绝次数；页面验证信息中的长度规则（例如“must be 10 digits”）用于在模型分散时筛选目标文字中的候选；停滞判定只针对最近已尝试过的目标，新的动作（例如关闭挡住表单的弹窗）照常执行。
+
+第三轮修正（通用提交）：向搜索类输入（searchbox、type=search、名称或 placeholder 含 search/query/keyword/find/搜索 等，含单行搜索 textarea）或表单外的日期类输入框输入后，宿主自动按一次 Enter 提交所输入的内容；POST 表单中的字段不自动提交（Enter 会提交表单，交给模型及其门槛）。搜索类 textarea 也提供 PRESS_ENTER 候选；Enter 与输入一样，在目标被可编辑覆盖层遮挡时作用于覆盖层。

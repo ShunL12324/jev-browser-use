@@ -3,7 +3,7 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
-import { bindCandidates, fits, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
+import { bindCandidates, fits, searchLike, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
 export const AGENT_PROTOCOL = 2
@@ -11,6 +11,7 @@ const crossDocumentHref = (href, current) => { try { const a = new URL(href), b 
 // Enter in a form submits it: judge it as its submit control (or an unnamed
 // POST/submit stand-in when the form has none).
 export const submitterOf = (el, page) => el?.form ? page.elements.find(e => e.submit && e.form === el.form) ?? { ...el, submit: true, name: '', editable: false } : el
+export const DATE_LIKE = /\b(date|depart\w*|return|arriv\w*|check-?in|check-?out|when|from date|to date)\b/i
 const SUBMIT_WORDS = /\b(search|find|submit|apply|go|save|update|continue|next|send|book|place|confirm|sign in|log in)\b/i
 const submitLike = e => !!e && !e.editable && (e.submit || ['button', 'link'].includes(e.role) && SUBMIT_WORDS.test(e.name ?? ''))
 const originOf = url => { try { return new URL(url).origin } catch { return null } }
@@ -174,10 +175,16 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   // Date-like text fields outside a form (custom pickers) often keep typed
   // text uncommitted until Enter; press it once, as a user would. Inside a
   // form Enter would submit it, so there it is left to the model.
-  const DATE_LIKE = /\b(date|depart\w*|return|arriv\w*|check-?in|check-?out|when|from date|to date)\b/i
+  // Search boxes and date fields keep typed text uncommitted until Enter
+  // (custom pickers, formless search boxes). After typing into one, press
+  // Enter once, as a user would. Excluded: POST forms (Enter would submit
+  // them; left to the model and its gates) and, for dates, an open list of
+  // suggestions (a suggestion should be chosen instead).
   const commitTyped = async el => {
     const now2 = page.elements.find(e => e.ref === el.ref)
-    if (!now2 || now2.form || !DATE_LIKE.test(el.name) || page.elements.some(e => e.role === 'option' && e.inView)) return
+    if (!now2 || String(now2.formMethod ?? '').toLowerCase() === 'post') return
+    const search = searchLike(now2), date = DATE_LIKE.test(el.name) && !now2.form && !page.elements.some(e => e.role === 'option' && e.inView)
+    if (!search && !date) return
     emit({ event: 'auto_commit', ref: el.ref, name: el.name })
     await exec('key', now2, { key: 'Enter' })
   }

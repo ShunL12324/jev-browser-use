@@ -84,7 +84,7 @@ function observe(limit: number) {
       checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert, readonly: f.readonly, required: f.required, valid: f.valid,
       modalBlocked: f.modalBlocked, dialog: f.dialog, context: f.context, href: f.href, options: f.options, files: f.files?.length, editable: editable(el) && !f.readonly,
       password: input?.type === 'password', submit: f.buttonType === 'submit' || input?.type === 'submit' || input?.type === 'image', formMethod: (el as HTMLInputElement).form?.method ?? null,
-      payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, form: (el as HTMLInputElement).form ? getOrAssignRef((el as HTMLInputElement).form!).ref : null, item: isCell(el) ? groupLabel(el) : itemText(el, f.name), guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
+      payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, form: (el as HTMLInputElement).form ? getOrAssignRef((el as HTMLInputElement).form!).ref : null, item: isCell(el) ? groupLabel(el) : itemText(el, f.name), placeholder: el.getAttribute('placeholder'), guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
   })
   // The budget keeps the elements nearest the viewport; the model reads them
   // in page order, which is how forms and lists make sense.
@@ -150,7 +150,7 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
     // Typing into a field covered by another editable element (a search box
     // under a transparent textarea overlay): type where a user's click lands.
     const hit = lastHit as HTMLElement | null
-    if (covered && op === 'type' && hit && editable(hit) && !(hit as HTMLInputElement).readOnly && facts(hit).visible && !facts(hit).disabled) { el = hit; redirected = covered }
+    if (covered && (op === 'type' || op === 'key') && hit && editable(hit) && !(hit as HTMLInputElement).readOnly && facts(hit).visible && !facts(hit).disabled) { el = hit; redirected = covered }
     else if (covered) return { ...reject('UNREACHABLE'), coveredBy: covered }
   }
   // Navigation API reports same-tick cross-document navigations. A native

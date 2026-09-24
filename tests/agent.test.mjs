@@ -172,7 +172,16 @@ test('TYPE_TEXT asks the caller once per field and reuses the text', async () =>
   const q = el('Search'), f = fake([q]), texts = []
   let asks = 0
   await run(task(), f, async p => { asks++; return answer({ op: () => asks <= 2 ? ['TYPE_TEXT', q.ref] : ['DONE'] })(p) }, async h => { texts.push(h.kind); return { text: 'Lisbon' } })
-  assert.deepEqual(texts, ['text']); assert.deepEqual(f.s.executed.map(e => e.text), ['Lisbon'])
+  assert.deepEqual(texts, ['text']); assert.deepEqual(f.s.executed.filter(e => e.op === 'type').map(e => e.text), ['Lisbon'])
+})
+test('typing into a search or date input commits it with Enter; a POST form field is left to the model', async () => {
+  for (const [field, expectEnter] of [[() => el('Search'), true], [() => el('Departure'), true], [() => el('Destination', { form: 'f1', formMethod: 'post' }), false], [() => el('Notes'), false]]) {
+    n = 0
+    const q = field(), f = fake([q])
+    let asks = 0
+    await run(task({ goal: 'Find stays in Lisbon' }), f, async p => { asks++; return answer({ op: () => asks === 1 ? ['TYPE_TEXT', q.ref] : ['DONE'], text: 'Lisbon' })(p) }, async () => ({}))
+    assert.equal(f.s.executed.some(e => e.op === 'key' && e.key === 'Enter'), expectEnter, q.name)
+  }
 })
 test('an invalid operation answer executes nothing', async () => {
   n = 0

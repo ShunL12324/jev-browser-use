@@ -33,11 +33,11 @@ export function targets(page, used = new Set()) {
   const out = { CLICK: {}, TYPE_TEXT: {}, SELECT: {}, PRESS_ENTER: {}, SWITCH_TAB: {}, CLOSE_TAB: {} }
   for (const e of page.elements.filter(usable)) {
     if (e.inputType === 'file' || e.password) continue
-    if (used.has(e.ref)) { if (e.editable && e.value && e.tag !== 'textarea') out.PRESS_ENTER[e.ref] = { ref: e.ref }; continue }
+    if (used.has(e.ref)) { if (e.editable && e.value && (e.tag !== 'textarea' || searchLike(e))) out.PRESS_ENTER[e.ref] = { ref: e.ref }; continue }
     // Unnamed controls give the model nothing to judge; they stay unoffered.
     if (e.tag !== 'select' && e.name && !/^<\w+>$/.test(e.name)) out.CLICK[e.ref] = { ref: e.ref }
     if (e.editable) out.TYPE_TEXT[e.ref] = { ref: e.ref }
-    if (e.editable && e.value && e.tag !== 'textarea') out.PRESS_ENTER[e.ref] = { ref: e.ref }
+    if (e.editable && e.value && (e.tag !== 'textarea' || searchLike(e))) out.PRESS_ENTER[e.ref] = { ref: e.ref }
     // Long native lists stay reachable through supplied-input binding.
     if (e.tag === 'select' && e.options?.length <= 40) e.options.forEach((o, i) => { if (!o.disabled && o.value !== '' && o.value !== e.value) out.SELECT[`${e.ref}:${i}`] = { ref: e.ref, value: o.value, label: o.label } })
   }
@@ -66,6 +66,8 @@ export function pageOperations(page, history, used) {
 }
 
 // Fields that could receive one supplied input, with the host operation.
+// Search inputs: Enter runs the query (also for single-line search textareas).
+export const searchLike = e => !!e && e.editable && (e.role === 'searchbox' || e.inputType === 'search' || /\b(search|query|keyword|find)\b|搜索|検索|검색/i.test(`${e.name} ${e.placeholder ?? ''}`))
 // Plausibility of a text for a field, from its input type and label.
 export const fits = (e, v) => typed(e, v) && (!/e-?mail/i.test(e.name) || v.includes('@')) && (!/\b(phone|tel|mobile)\b/i.test(e.name) || (v.match(/\d/g) ?? []).length >= 5) && (!/\b(zip|postal|postcode)\b/i.test(e.name) || /\d/.test(v))
 const typed = (e, v) => e.inputType === 'date' ? /^\d{4}-\d{2}-\d{2}$/.test(v) : e.inputType === 'number' ? /^-?\d+(\.\d+)?$/.test(v) : e.inputType === 'email' ? v.includes('@') : true
