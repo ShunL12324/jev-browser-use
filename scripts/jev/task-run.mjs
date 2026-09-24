@@ -13,7 +13,9 @@ const browser = await launchIsolated({ headless: !process.argv.includes('--headf
 try {
   const started = performance.now()
   const run = await runBrowserTask(browser.tool, task, async h => h.kind === 'confirm' ? { approve } : h.kind === 'text' && texts[h.field?.label] ? { text: texts[h.field.label] } : {})
-  const summary = { task: path, status: run.result.status, reason: run.result.reason ?? run.result.code, finalUrl: run.result.finalUrl, e2eMs: performance.now() - started, metrics: run.result.metrics, handoffs: run.handoffs, tracePath: run.result.tracePath }
+  const summary = { task: path, status: run.result.status, reason: run.result.reason ?? run.result.code, finalUrl: run.result.finalUrl, sessionId: run.result.sessionId,
+    ...(run.result.items ? { items: run.result.items, skipped: run.result.skipped, visited: run.result.visited } : {}),
+    e2eMs: performance.now() - started, metrics: run.result.metrics, handoffs: run.handoffs, tracePath: run.result.tracePath }
   await mkdir('/tmp/jev-product/runs', { recursive: true }); await writeFile(`/tmp/jev-product/runs/task-${Date.now()}.json`, JSON.stringify(summary, null, 2))
   console.log(JSON.stringify(summary))
 } finally { await browser.close() }

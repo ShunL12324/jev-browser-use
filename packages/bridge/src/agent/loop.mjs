@@ -28,7 +28,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
   const history = record.history ??= [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = record.textCache ??= new Map()
   record.items ??= []; record.skipped ??= 0; record.visited ??= new Set(); record.processedDetails ??= new Set()
-  const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
+  const secrets = record.secrets ??= []
+  for (const value of Object.values(task.inputs).filter(i => i.secret).map(i => i.value)) if (!secrets.includes(value)) secrets.push(value)
   let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false, pendingInputs = false
   const taskTabs = record.taskTabs ??= new Map(), seenValues = record.seenValues ??= new Map(), refused = record.refused ??= new Map()
   const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }

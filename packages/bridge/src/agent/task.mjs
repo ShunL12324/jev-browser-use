@@ -71,7 +71,8 @@ export async function startTask(raw, { host, ask = askJev, ledgerPath = process.
   requireBudget(ledgerPath, task.budgets.maxJevRequests, PRODUCT_LIMIT)
   mkdirSync(traceDirectory, { recursive: true, mode: 0o700 })
   const id = `t_${randomUUID()}`, tracePath = join(traceDirectory, `${id}.jsonl`)
-  const secretValues = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
+  const secretValues = browserSession.record.secrets ??= []
+  for (const value of Object.values(task.inputs).filter(i => i.secret).map(i => i.value)) if (!secretValues.includes(value)) secretValues.push(value)
   const redact = text => secretValues.reduce((t, v) => t.split(v).join('‹secret›'), text)
   const emit = event => {
     appendFileSync(tracePath, redact(JSON.stringify({ taskId: id, at: new Date().toISOString(), ...event })) + '\n', { mode: 0o600 })
