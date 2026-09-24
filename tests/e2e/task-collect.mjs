@@ -11,9 +11,9 @@ const html = `<!doctype html><title>Cards</title><style>
 body{font:16px sans-serif;padding:32px}.feed{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 article{padding:24px;border:1px solid #bbb}dialog{width:600px;min-height:250px}
 </style><main><h1>Reading list</h1><div class="feed">
-<article><button onclick="openPost(0)">Open item one</button></article>
-<article><button onclick="openPost(1)">Open item two</button></article>
-<article><button onclick="openPost(2)">Open item three</button></article>
+<article><button onclick="setTimeout(() => openPost(0), 150)">Open item one</button></article>
+<article><button onclick="setTimeout(() => openPost(1), 150)">Open item two</button></article>
+<article><button onclick="setTimeout(() => openPost(2), 150)">Open item three</button></article>
 </div></main><dialog aria-modal="true" aria-label="Post"><button onclick="document.querySelector('dialog').close()">Close</button><section id="post"></section></dialog>
 <script>
 const posts=[['Item one','Video player'],['Item two','A text post about JEV.'],['Item three','Another text post about JEV.']];
@@ -37,8 +37,9 @@ const ask = async ({ state, questions }) => {
 }
 try {
   const task = prepareTask({ goal: 'Collect two text posts about JEV, excluding video', kind: 'collect', collect: { count: 2, item: 'text posts about JEV, excluding video' }, startUrl: origin, allowedOrigins: [origin], llm: 'none' })
-  const result = await runTask(task, { call: (name, args) => browser.call(name, args), ask, handoff: async () => { throw Error('No handoff expected') } })
-  assert.equal(result.status, 'done', JSON.stringify(result))
+  const events = []
+  const result = await runTask(task, { call: (name, args) => browser.call(name, args), ask, handoff: async () => { throw Error('No handoff expected') }, emit: e => events.push(e) })
+  assert.equal(result.status, 'done', JSON.stringify({ result, events }))
   assert.deepEqual(result.items.map(x => x.title), ['Item two', 'Item three'])
   assert.equal(result.skipped, 1)
   assert.ok(result.items.every(x => x.text.includes('text post about JEV.')))

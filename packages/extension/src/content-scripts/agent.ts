@@ -24,7 +24,7 @@ function guard(el: Element) {
 // Text of the list item / row / card holding a control, when it adds to the
 // control's own name (e.g. which reservation a "Cancel" button belongs to).
 function itemText(el: Element, name: string) {
-  const item = el.parentElement?.closest('li,tr,article,[role="row"],[role="listitem"],[role="article"]') as HTMLElement | null
+  const item = el.parentElement?.closest('li,tr,article,section,[role="row"],[role="listitem"],[role="article"]') as HTMLElement | null
   const text = item?.innerText?.replace(/\s+/g, ' ').trim()
   return text && text !== name && text.length > name.length ? text.slice(0, 120) : null
 }
@@ -54,7 +54,7 @@ function detail() {
   const root = (dialogs.at(-1) || (articles.length === 1 ? articles[0] : null)) as HTMLElement | null
   if (!root) return null
   const heading = root.querySelector('h1,h2,h3,[role="heading"]') as HTMLElement | null
-  const author = root.querySelector('[rel="author"],[itemprop="author"],[data-author]') as HTMLElement | null
+  const author = root.querySelector('[rel="author"],[itemprop="author"],[data-author],.author') as HTMLElement | null
   const date = root.querySelector('time,[itemprop="datePublished"]') as HTMLElement | null
   const link = root.querySelector('a[rel="canonical"]') as HTMLAnchorElement | null
   return { kind: dialogs.length ? 'dialog' : 'page', title: heading?.innerText?.trim() || root.getAttribute('aria-label') || document.title,

@@ -72,6 +72,9 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       for (const e of page.elements) if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›')
       if (page.detail) for (const key of ['title', 'author', 'date', 'url', 'text']) if (typeof page.detail[key] === 'string') page.detail[key] = page.detail[key].split(secret).join('‹secret›')
     }
+    if (task.kind === 'collect' && page.detail?.text && record.pendingSource && !record.activeSource) {
+      record.activeSource = record.pendingSource; record.pendingSource = null
+    }
     for (const e of page.elements) if ((refused.get(`${page.documentId}|${e.ref}`) ?? 0) >= 2) e.unreachable = true
     // After secret redaction: remembered values never include secrets.
     for (const v of pageValues(page.text)) { seenValues.delete(v); seenValues.set(v, { text: v, source: page.title }) }
@@ -152,6 +155,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       stalls++
       await observe(); return { sent: false, code: res.code }
     }
+    if (task.kind === 'collect' && op === 'click' && el && !(el.submit && el.form) && !el.dialog && !el.editable) record.pendingSource = itemKey(el)
     m.steps++
     // A link to another document may start navigating after the settle
     // window (script-driven suggestions, slow networks); so may a form submit.
@@ -165,9 +169,16 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       // Wait for the next document instead of deciding on the unloading one:
       // up to 15 s once navigation is seen, up to 3 s when only expected.
       const deadline = now() + (res.crossDocument || settled.navigating ? 15000 : 3000)
-      do { await delay(80, undefined, { signal }); await observe() } while (page.documentId === before.documentId && now() < deadline)
-      navPending = page.documentId === before.documentId
+      const openedModal = () => task.kind === 'collect' && page.detail?.kind === 'dialog' && page.detail.text !== before.detail?.text
+      do { await delay(80, undefined, { signal }); await observe() }
+      while (page.documentId === before.documentId && !openedModal() && now() < deadline)
+      navPending = page.documentId === before.documentId && !openedModal()
     } else { await observe(); navPending = false }
+    if (task.kind === 'collect' && op === 'click' && record.pendingSource && !page.detail?.text && page.documentId === before.documentId) {
+      const deadline = now() + 1000
+      while (!page.detail?.text && now() < deadline) { await delay(80, undefined, { signal }); await observe() }
+    }
+    if (task.kind === 'collect' && before.detail?.text && !page.detail?.text) { record.activeSource = null; record.pendingSource = null }
     const changed = page.documentId !== before.documentId || page.marker !== before.marker || page.text !== before.text
     // Text that appeared because of this action (validation errors, results,
     // confirmations) is the most direct feedback the model can get.
@@ -194,7 +205,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     if (['type', 'select', 'check'].includes(op) && (hasSubmitter || postcondition === 'unmet')) pendingInputs = true
     if (op === 'key' || entry.navigated || op === 'click' && submitLike(el)) pendingInputs = false
     if (task.kind === 'collect' && op === 'click' && page.detail?.text && (page.detail.text !== before.detail?.text || page.url !== before.url)) record.activeSource = itemKey(el)
-    if (op === 'close_dialog' || op === 'back') record.activeSource = null
+    if (op === 'close_dialog' || op === 'back') { record.activeSource = null; record.pendingSource = null }
     stalls = changed || op === 'wait' ? 0 : stalls + 1
     // A click that changed nothing is a failed target, like a refused one.
     if (op === 'click' && !changed && el) { const key = `${page.documentId}|${el.ref}`; refused.set(key, (refused.get(key) ?? 0) + 1) }
