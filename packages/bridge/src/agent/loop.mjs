@@ -196,6 +196,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       if (!fits(el, text) || el.value === text) {
         const why = el.value === text ? 'the field already contains this text' : `"${text.slice(0, 40)}" does not fit field "${el.name}"`
         history.push({ doc: page.documentId, op: 'type', ref: el.ref, name: el.name, notSent: `not executed: ${why}` }); stalls++
+        const key = `${page.documentId}|${el.ref}`; refused.set(key, (refused.get(key) ?? 0) + 1)
+        for (const e of page.elements) if ((refused.get(`${page.documentId}|${e.ref}`) ?? 0) >= 2) e.unreachable = true
         emit({ event: 'outcome', execution: 'not_sent', code: 'TEXT_REJECTED', why }); return
       }
       await exec('type', el, { text }); return

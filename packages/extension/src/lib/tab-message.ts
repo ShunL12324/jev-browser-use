@@ -13,7 +13,7 @@ const log = createLogger('tab-message')
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
-export async function sendToFrame<T = unknown>(
+async function sendOnce<T = unknown>(
   tabId: number,
   frameId: number,
   request: CSRequest,
@@ -95,4 +95,36 @@ export function sendToTop<T = unknown>(
   timeoutMs?: number
 ): Promise<T> {
   return sendToFrame<T>(tabId, 0, request, timeoutMs)
+}
+
+// A document whose declared content scripts never started (seen rarely on
+// fresh windows) gets them injected once, then the request is retried.
+const injected = new Map<string, number>()
+async function injectContentScripts(tabId: number, frameId: number) {
+  for (const cs of chrome.runtime.getManifest().content_scripts ?? []) {
+    const world = (cs as { world?: 'MAIN' | 'ISOLATED' }).world ?? 'ISOLATED'
+    await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, files: cs.js ?? [], world, injectImmediately: true })
+  }
+}
+export async function sendToFrame<T = unknown>(
+  tabId: number,
+  frameId: number,
+  request: CSRequest,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS
+): Promise<T> {
+  const missing = (e: unknown) => e instanceof Error && /Receiving end does not exist/.test(e.message)
+  try { return await sendOnce<T>(tabId, frameId, request, timeoutMs) } catch (e) {
+    if (!missing(e)) throw e
+  }
+  // Content scripts load asynchronously; give them a moment first.
+  await new Promise(r => setTimeout(r, 300))
+  try { return await sendOnce<T>(tabId, frameId, request, timeoutMs) } catch (e) {
+    const key = `${tabId}:${frameId}`, last = injected.get(key) ?? 0
+    if (!missing(e) || Date.now() - last < 5000) throw e
+    injected.set(key, Date.now())
+    log.warn(`no content script in tab=${tabId} frame=${frameId}; injecting`)
+    try { await injectContentScripts(tabId, frameId) } catch { throw e }
+    await new Promise(r => setTimeout(r, 150))
+    return sendOnce<T>(tabId, frameId, request, timeoutMs)
+  }
 }

@@ -172,3 +172,15 @@ r3 开发期复测（T33 评测站私有副本，standard 变体，atlas/birch�
 `tests/tester/` 是 tester 成员的工作目录：`.mcp.json` 以相对路径启动 bridge（端口 17329，Node 走本地代理，本地地址直连；秘密与文件清单在 `/tmp/jev-tester/`，每个 seed 由 harness 的 `manifests` 命令生成）；bridge 经 `start-bridge.sh` 启动：Claude Code 进程环境中没有 `TYPESAFE_API_KEY` 时，从 `JEV_KEY_FILE`（默认 `/tmp/jev-tester/typesafe.env`，单行 `TYPESAFE_API_KEY=...`，权限 0600）只读取这一变量，不 source、不打印；`CLAUDE.md` 是 tester 的操作规程（只经本 MCP 操作；自主列用 `llm:"none"`，辅助列用 `llm:"handoff"`；公开站点只读；用 harness 的 `start`/`finish` 取得 runner view 与独立判分）；`page-state.js` 是公开任务判分所需的只读页面采集表达式，与 harness 自身的页面读取格式相同。
 
 机械证据（临时 Chromium，假 Jev）：`tests/hub.test.mjs`（两会话互不可见、用户 tab 不被触碰、子 tab 采纳、hub 退出后接管与重新声明）；`tests/e2e/task-tabs.mjs`（真实扩展中 target=_blank 新 tab 被采纳并跟随、第二个 MCP 会话作为 peer 看不到也用不了第一个会话的 tab）。
+
+### P1b 用户 Chrome 首轮之后的修正
+
+- **日历/网格**：包住按钮的 gridcell 不再重复出现；网格单元格带所在网格的标签（例如月份）作为 `item`；网格单元格最多占观察预算的一半，其余仍按离视口远近选取，这样 Done、下个月、Search 以及自动完成的选项不会被挤掉。
+- **输入保护**：明显不属于该字段的文本（例如把姓名输入 Email 字段、电话字段没有数字）以及与字段现有值相同的文本不会被输入，模型会在 `recentActions` 中看到原因；同一目标在同一文档被拒绝两次（遮挡、类型不符、执行器拒绝）后不再提供（`unreachable`），停滞则按原规则交给调用方。
+- **遮挡的输入框**：输入框被另一个可编辑元素覆盖（例如透明 textarea 覆盖的搜索框）时，文字输入到点击实际落到的那个元素。
+- **不提前完成**：输入后尚未经过提交类步骤（Enter、提交/搜索类按钮或导航）时，页面上仍有提交类控件则不接受 DONE：若模型的 CLICK 目标正是提交类控件（p ≥ 0.5）就执行它，否则交给调用方。
+- **tab 清理**：`keepTabs`（默认 `final`）在任务结束时关闭除最终 tab 外的任务 tab，并在同一会话开始下一个任务时关闭上一个任务的最终 tab；`none` 全部关闭，`all` 全部保留。
+- **结果中的 handoff 记录**：`result.handoffs` 含每次交给调用方的类型、原因、提问与回答时间（Unix ms）和确认结论，判分据此核对“确认先于提交”。
+- **账本锁**：并发会话等待账本锁（最多 10 s，`JEV_LEDGER_LOCK_WAIT_MS`），超时仍按“锁未释放”失败关闭，不发送请求。
+- **内容脚本缺失**：极少数新窗口中声明的内容脚本没有启动；扩展在 300 ms 后仍收不到应答时，把 manifest 中的内容脚本注入该 frame 一次再重试。
+- 用户 Chrome 上 complex-forms 的 12.7–14.1 s 中约 6.3 s 是 tester 回答两次确认的等待（`handoffWaitMs`）；非 handoff 时间约 7.3 s，settle 约 0.8 s，与 WSL 相同。窗口 `visibilityState` 为 visible、未获得焦点，没有观察到节流。
