@@ -4,7 +4,7 @@ const norm = s => String(s ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g
 export const choiceField = e => !!e && e.tag !== 'select' && (e.role === 'combobox' || ['listbox', 'grid'].includes(e.hasPopup) || ['list', 'both'].includes(e.autocomplete))
 export const isCandidate = e => e?.role === 'option' || e?.candidate?.source === 'explicit_controlled_popup'
 export const ownedOptions = (page, field) => field?.controls?.status === 'known'
-  ? page.elements.filter(e => isCandidate(e) && (e.candidate ? e.candidate.ownerRef === field.ref && field.controls.targets.some(t => t.ref === e.candidate.popupRef && t.visible) : e.listbox && field.controls.targets.some(t => t.ref === e.listbox.ref && t.visible))) : []
+  ? page.elements.filter(e => isCandidate(e) && e.popupMember?.status !== 'rejected' && !e.disabled && (e.candidate ? e.candidate.ownerRef === field.ref && field.controls.targets.some(t => t.ref === e.candidate.popupRef && t.visible) : e.listbox && field.controls.targets.some(t => t.ref === e.listbox.ref && t.visible))) : []
 const signature = (page, field) => JSON.stringify(ownedOptions(page, field).map(e => [e.ref, e.name, e.disabled, e.item]))
 const loading = e => e?.busy || e?.controls?.targets.some(t => t.busy)
 const value = e => String(e?.value ?? e?.displayValue ?? '')
@@ -71,6 +71,7 @@ export class Selections {
 // batches. Candidate lists belonging to other fields cannot finish this query.
 export function selectionAllows(page, e) {
   const pending = page.selections ?? []
+  if (e.popupMember?.status === 'rejected') return false
   if (!isCandidate(e) || !pending.length) return true
   return pending.some(s => s.ready && s.optionRefs.includes(e.ref))
 }

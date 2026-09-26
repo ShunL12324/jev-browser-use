@@ -18,6 +18,14 @@ function semanticText(el: Element): string {
   if (label) return label
   return Array.from(el.childNodes).map(n => n.nodeType === Node.TEXT_NODE ? n.textContent : n instanceof Element ? semanticText(n) : '').filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
 }
+const choiceOwner = '[role="combobox"],[aria-autocomplete="list"],[aria-autocomplete="both"],[aria-haspopup="listbox"],[aria-haspopup="grid"]'
+const disabledPath = (entry: Element, popup: Element) => {
+  for (let node: Element | null = entry; node; node = node.parentElement) {
+    if (node.matches('[aria-disabled="true"],:disabled,[inert]')) return true
+    if (node === popup) break
+  }
+  return false
+}
 export function selectionCandidate(el: Element) {
   const popup = el.parentElement?.closest('[role="listbox"],[role="grid"]')
   if (!popup?.id || !visible(el) || !visible(popup)) return null
@@ -26,7 +34,7 @@ export function selectionCandidate(el: Element) {
   const owners = Array.from(root.querySelectorAll('[aria-controls]')).filter(n => (n.getAttribute('aria-controls') ?? '').split(/\s+/).includes(popup.id))
   if (owners.length !== 1) return null
   const owner = owners[0]!
-  if (!owner.matches('[role="combobox"],[aria-autocomplete="list"],[aria-autocomplete="both"],[aria-haspopup="listbox"],[aria-haspopup="grid"]')) return null
+  if (!owner.matches(choiceOwner)) return null
   let entry = el, label: string
   if (popup.getAttribute('role') === 'listbox') {
     if (el.getAttribute('role') !== 'option') return null
@@ -46,7 +54,30 @@ export function selectionCandidate(el: Element) {
     label = semanticText(entry)
   }
   if (!label || label.length > 200) return null
-  return { owner, popup, entry, label,
+  const disabled = disabledPath(entry, popup) || disabledPath(el, popup) || owner.matches('[aria-disabled="true"],:disabled,[inert]')
+  return { owner, popup, entry, label, disabled,
     facts: { source: 'explicit_controlled_popup', ownerRef: getOrAssignRef(owner).ref, popupRef: getOrAssignRef(popup).ref,
-      entryRef: getOrAssignRef(entry).ref, kind: popup.getAttribute('role'), label } }
+      entryRef: getOrAssignRef(entry).ref, disabled, kind: popup.getAttribute('role'), label } }
+}
+
+// Rejected popup members must not become ordinary CLICK targets. Remember
+// membership on the actual node so removing its popup role cannot bypass it.
+type Membership = { popupRef: string; status: 'eligible' | 'rejected'; reason: string }
+const members = new WeakMap<Element, Membership>()
+export function selectionMembership(el: Element, candidate = selectionCandidate(el)): Membership | null {
+  const popup = el.closest('[role="listbox"],[role="grid"]')
+  if (!popup) {
+    const previous = members.get(el)
+    return previous ? { ...previous, status: 'rejected', reason: 'association_lost' } : null
+  }
+  const root = el.getRootNode() as Document | ShadowRoot
+  const controlled = popup.id && Array.from(root.querySelectorAll('[aria-controls]')).some(n => n.matches(choiceOwner) && (n.getAttribute('aria-controls') ?? '').split(/\s+/).includes(popup.id))
+  // Ordinary calendar/table buttons outside a choice popup keep their normal
+  // action semantics. Generic row wrappers do not gain this exception.
+  const nativeAction = 'button,a[href],input,select,textarea,[role="button"]'
+  if (popup.getAttribute('role') === 'grid' && !controlled && (el.matches(nativeAction) || el.getAttribute('role') === 'gridcell' && el.querySelector(nativeAction)) && !members.has(el)) return null
+  const reason = !candidate ? 'unqualified_popup_member' : candidate.disabled ? 'disabled_entry' : candidate.owner.getAttribute('aria-busy') === 'true' || popup.getAttribute('aria-busy') === 'true' ? 'busy_popup' : ''
+  const membership: Membership = { popupRef: getOrAssignRef(popup).ref, status: reason ? 'rejected' : 'eligible', reason }
+  members.set(el, membership)
+  return membership
 }

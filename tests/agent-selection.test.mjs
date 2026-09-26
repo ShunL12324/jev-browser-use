@@ -152,3 +152,23 @@ test('cross-document pick retains an unconfirmed obligation and a fresh result w
   pick.r.started -= 4000; assert.equal(s.waiting(next), false)
   assert.equal(next.selections.length, 1) // timeout or URL/name match cannot clear it
 })
+
+test('rejected generic popup members cannot bypass selection routing', async () => {
+  const { targets, bindCandidates } = await import('../packages/bridge/src/agent/space.mjs')
+  for (const reason of ['unqualified_popup_member', 'disabled_entry', 'busy_popup', 'association_lost']) {
+    const bad = { ...option(), role: 'generic', candidate: undefined, popupMember: { status: 'rejected', reason } }
+    const p = page(owner(), bad)
+    assert.equal(selectionAllows(p, bad), false)
+    assert.equal(bad.ref in targets(p).CLICK, false)
+    assert.equal(bad.ref in bindCandidates(p, { value: bad.name }, new Set()), false)
+  }
+  const ordinary = { ref: 'normal', name: 'Open information', role: 'generic', inView: true }
+  assert.equal(ordinary.ref in targets(page(ordinary)).CLICK, true)
+})
+test('eligible grid candidate still cannot bypass pending busy or stale query', () => {
+  const item = { ...option(), role: 'generic', candidate: { source: 'explicit_controlled_popup', ownerRef: 'field', popupRef: 'list' } }
+  for (const options of [{ afterOptions: [item], busy: true }, { beforeOptions: [item], afterOptions: [item] }]) {
+    const { s, after } = query(options)
+    assert.equal(selectionAllows(after, item), false); assert.equal(s.beforePick(after, item), null)
+  }
+})

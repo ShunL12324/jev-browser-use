@@ -32,7 +32,7 @@ function display(w: Witness): Set<string> {
 }
 export function watchSelection(option: Element) {
   const candidate = selectionCandidate(option)
-  if (!candidate) return
+  if (!candidate || candidate.disabled) return
   const list = candidate.popup
   if (!list?.id) return
   const root = option.getRootNode() as Document | ShadowRoot

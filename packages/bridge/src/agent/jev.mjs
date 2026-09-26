@@ -20,7 +20,7 @@ const FIELD = 'Does the goal itself state what this field should be set to? If s
 const field = e => `"${e.name}"` + (e.context?.length ? ` in ${e.context.join(' › ')}` : '') + (e.value ? ` = ${JSON.stringify(String(e.value).slice(0, 60))}` : '') + (e.checked ? ' (checked)' : '')
 
 const compact = e => ({ id: e.ref, role: e.role, name: e.name, ...(e.value ? { value: String(e.value).slice(0, 120) } : {}), ...(e.context?.length ? { context: e.context.join(' › ') } : {}), ...(e.item ? { item: e.item } : {}),
-  ...(e.controls?.status === 'known' ? { controls: e.controls.targets } : {}), ...(e.candidate ? { candidate: e.candidate } : {}), ...(e.listbox ? { listbox: e.listbox.ref } : {}), ...(e.busy ? { busy: true } : {}), ...(e.invalid ? { invalid: true } : {}),
+  ...(e.controls?.status === 'known' ? { controls: e.controls.targets } : {}), ...(e.popupMember ? { popupMember: e.popupMember } : {}), ...(e.candidate ? { candidate: e.candidate } : {}), ...(e.listbox ? { listbox: e.listbox.ref } : {}), ...(e.busy ? { busy: true } : {}), ...(e.invalid ? { invalid: true } : {}),
   ...(e.checked !== null && e.checked !== undefined ? { checked: e.checked } : {}), ...(e.expanded !== null && e.expanded !== undefined ? { expanded: e.expanded } : {}), ...(e.selected ? { selected: true } : {}),
   ...(e.disabled ? { disabled: true } : {}), ...(e.unreachable ? { unreachable: 'refused twice (covered or unusable); not offered' } : {}), ...(e.required ? { required: true, valid: e.valid } : {}), ...(!e.inView ? { offscreen: true } : {}), ...(e.tag === 'select' ? { options: e.options.length > 40 ? `${e.options.length} options` : e.options.map(o => o.label) } : {}), ...(e.inputType === 'file' ? { files: e.files ?? 0 } : {}) })
 

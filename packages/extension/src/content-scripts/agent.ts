@@ -1,4 +1,4 @@
-import { selectionCandidate } from './selection-candidate'
+import { selectionCandidate, selectionMembership } from './selection-candidate'
 // browser_task page side: one synchronous observation of the top document
 // (shadow roots included), guarded execution and a short event-driven settle.
 // The bridge decides; this file only reads facts and performs one operation.
@@ -24,7 +24,7 @@ function guard(el: Element) {
   const f = facts(el), scope = el.closest('form,dialog,[role="dialog"],fieldset,li,tr,[role="row"],[role="listbox"]') ?? el.parentElement
   const root = el.getRootNode() as Document | ShadowRoot
   const owners = f.listbox ? Array.from(root.querySelectorAll('[aria-controls]')).filter(owner => facts(owner).controls.targets.some(t => t.ref === f.listbox!.ref)).map(owner => { const o = facts(owner); return [getOrAssignRef(owner).ref, o.value, o.expanded, owner.getAttribute('aria-busy')] }) : []
-  return hash(JSON.stringify([candidate ? [candidate.facts, (candidate.owner as HTMLInputElement).value, candidate.owner.getAttribute('aria-expanded'), candidate.owner.getAttribute('aria-busy'), candidate.popup.getAttribute('aria-busy')] : null, owners, el.closest('[role="listbox"]')?.getAttribute('aria-busy'), f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.readonly, f.context, f.dialog, f.controls, f.listbox, el.getAttribute('aria-busy'), scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
+  return hash(JSON.stringify([selectionMembership(el, candidate), candidate ? [candidate.facts, (candidate.owner as HTMLInputElement).value, candidate.owner.getAttribute('aria-expanded'), candidate.owner.getAttribute('aria-busy'), candidate.popup.getAttribute('aria-busy')] : null, owners, el.closest('[role="listbox"]')?.getAttribute('aria-busy'), f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.readonly, f.context, f.dialog, f.controls, f.listbox, el.getAttribute('aria-busy'), scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
 }
 // Text of the list item / row / card holding a control, when it adds to the
 // control's own name (e.g. which reservation a "Cancel" button belongs to).
@@ -87,9 +87,9 @@ function observe(limit: number) {
     const el = findByRef(it.ref)!, f = facts(el), r = el.getBoundingClientRect()
     const candidate = selectionCandidate(el)
     const input = el instanceof HTMLInputElement ? el : null
-    return { ref: it.ref, role: f.role, name: candidate?.label ?? f.name, candidate: candidate?.facts, tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.role === 'combobox' && !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) ? (el as HTMLElement).innerText?.trim().slice(0, 120) || null : f.value,
+    return { ref: it.ref, role: f.role, name: candidate?.label ?? f.name, candidate: candidate?.facts, popupMember: selectionMembership(el, candidate), tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.role === 'combobox' && !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) ? (el as HTMLElement).innerText?.trim().slice(0, 120) || null : f.value,
       controls: f.controls, listbox: f.listbox, busy: el.getAttribute('aria-busy') === 'true', invalid: el.getAttribute('aria-invalid') === 'true' || f.valid === false, autocomplete: el.getAttribute('aria-autocomplete'), displayValue: (el as HTMLElement).innerText?.trim().slice(0, 120),
-      checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert, readonly: f.readonly, required: f.required, valid: f.valid,
+      checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert || candidate?.disabled === true, readonly: f.readonly, required: f.required, valid: f.valid,
       modalBlocked: f.modalBlocked, dialog: f.dialog, context: f.context, href: f.href, options: f.options, files: f.files?.length, editable: editable(el) && !f.readonly,
       password: input?.type === 'password', submit: f.buttonType === 'submit' || input?.type === 'submit' || input?.type === 'image', formMethod: (el as HTMLInputElement).form?.method ?? null,
       payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, form: (el as HTMLInputElement).form ? getOrAssignRef((el as HTMLInputElement).form!).ref : null, item: isCell(el) ? groupLabel(el) : itemText(el, f.name), placeholder: el.getAttribute('placeholder'), guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
@@ -161,6 +161,7 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
     if (guard(el) !== q.guard) return reject('STALE_REF')
     const f = facts(el)
     if (f.disabled || f.inert || f.modalBlocked || !f.visible || (op === 'type' && !editable(el))) return reject('UNREACHABLE')
+    if (['click', 'key'].includes(op) && selectionMembership(el)?.status === 'rejected') return reject('SELECTION_TARGET_REJECTED')
     const covered = op === 'hover' ? null : occluder(el)
     // Typing into a field covered by another editable element (a search box
     // under a transparent textarea overlay): type where a user's click lands.

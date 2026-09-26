@@ -592,3 +592,11 @@ test('noneditable country can reopen and reselect after reset while keeping inpu
   assert.equal(f.s.executed.filter(e => e.ref === opt.ref).length, 2)
   assert.equal(events.filter(e => e.event === 'selection_committed' && e.valueId === 'country').length, 2)
 })
+
+test('high confidence cannot execute a rejected generic popup wrapper', async () => {
+  const bad = button('350 Fifth Avenue Manhattan', { role: 'generic', tag: 'div', popupMember: { status: 'rejected', reason: 'unqualified_popup_member' } })
+  const normal = button('Other action'), f = fake([bad, normal])
+  const { result } = await run(task({ llm: 'none' }), f, answer({ op: () => ['CLICK', bad.ref] }))
+  assert.notEqual(result.status, 'done')
+  assert.equal(f.s.executed.length, 0)
+})
