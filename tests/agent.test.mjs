@@ -174,8 +174,8 @@ test('TYPE_TEXT asks the caller once per field and reuses the text', async () =>
   await run(task(), f, async p => { asks++; return answer({ op: () => asks <= 2 ? ['TYPE_TEXT', q.ref] : ['DONE'] })(p) }, async h => { texts.push(h.kind); return { text: 'Lisbon' } })
   assert.deepEqual(texts, ['text']); assert.deepEqual(f.s.executed.filter(e => e.op === 'type').map(e => e.text), ['Lisbon'])
 })
-test('typing into a search or date input commits it with Enter; a POST form field is left to the model', async () => {
-  for (const [field, expectEnter] of [[() => el('Search'), true], [() => el('Departure'), true], [() => el('Destination', { form: 'f1', formMethod: 'post' }), false], [() => el('Notes'), false]]) {
+test('typing never silently presses Enter in search, date or ordinary fields', async () => {
+  for (const [field, expectEnter] of [[() => el('Search'), false], [() => el('Departure'), false], [() => el('Destination', { form: 'f1', formMethod: 'post' }), false], [() => el('Notes'), false]]) {
     n = 0
     const q = field(), f = fake([q])
     let asks = 0
@@ -419,13 +419,13 @@ test('task tabs are closed at the end except the final one, which the next task 
     assert.equal(closed[1], 7)
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
-test('DONE is not accepted while filled inputs are unsubmitted; the submit-like CLICK target runs instead', async () => {
+test('DONE with filled inputs never executes a speculative Search target', async () => {
   n = 0
   const q = el('Where to?'), search = button('Search'), f = fake([q, search])
   let asks = 0
-  const { result } = await run(task({ goal: 'Find flights to London' }), f, async p => { asks++; const r = await answer({ op: () => asks === 1 ? ['TYPE_TEXT', q.ref] : ['DONE'], text: 'London' })(p); if (asks === 2) r.answers.target_CLICK = choice(p.questions.target_CLICK, search.ref); return r }, async () => { throw Error('no handoff expected') })
-  // The DONE head of cycle 2 is overridden by the (default) CLICK target: Search.
-  assert.ok(f.s.executed.some(e => e.op === 'click' && e.ref === search.ref), JSON.stringify(f.s.executed)); assert.equal(result.status, 'done')
+  const { result } = await run(task({ goal: 'Fill destination London and stop before Search' }), f, async p => { asks++; const r = await answer({ op: () => asks === 1 ? ['TYPE_TEXT', q.ref] : ['DONE'], text: 'London' })(p); if (asks === 2) r.answers.target_CLICK = choice(p.questions.target_CLICK, search.ref); return r }, async () => { throw Error('no handoff expected') })
+  // A confident speculative CLICK target is not an instruction to click.
+  assert.ok(!f.s.executed.some(e => e.op === 'click' && e.ref === search.ref), JSON.stringify(f.s.executed)); assert.equal(result.status, 'done')
 })
 test('a target refused twice on a document is excluded; the loop hands off instead of re-requesting it', async () => {
   n = 0
@@ -541,4 +541,15 @@ test('ambiguous namesake suggestions do not execute solely on high CLICK probabi
   const { result } = await run(task({ inputs: { school: { value: 'Example University', purpose: 'school' } }, llm: 'none' }), f, asks)
   assert.equal(result.status, 'blocked')
   assert.deepEqual(f.s.executed.map(e => e.op), ['type'])
+})
+
+
+test('an explicitly selected Enter remains a separate executable operation', async () => {
+  const q = el('Search'), f = fake([q]); let asks = 0
+  const { result } = await run(task({ goal: 'Search for Lisbon' }), f, async p => {
+    asks++
+    return answer({ op: () => asks === 1 ? ['TYPE_TEXT', q.ref] : asks === 2 ? ['PRESS_ENTER', q.ref] : ['DONE'], text: 'Lisbon' })(p)
+  })
+  assert.deepEqual(f.s.executed.map(e => e.op), ['type', 'key'])
+  assert.equal(result.status, 'done')
 })

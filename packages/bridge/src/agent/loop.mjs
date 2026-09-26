@@ -4,7 +4,7 @@ import { Selections, choiceField, ownedOptions } from './selection.mjs'
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
-import { bindCandidates, fits, searchLike, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
+import { bindCandidates, fits, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
 export const AGENT_PROTOCOL = 4
@@ -13,9 +13,6 @@ const crossDocumentHref = (href, current) => { try { const a = new URL(href), b 
 // Enter in a form submits it: judge it as its submit control (or an unnamed
 // POST/submit stand-in when the form has none).
 export const submitterOf = (el, page) => el?.form ? page.elements.find(e => e.submit && e.form === el.form) ?? { ...el, submit: true, name: '', editable: false } : el
-export const DATE_LIKE = /\b(date|depart\w*|return|arriv\w*|check-?in|check-?out|when|from date|to date)\b/i
-const SUBMIT_WORDS = /\b(search|find|submit|apply|go|save|update|continue|next|send|book|place|confirm|sign in|log in)\b/i
-const submitLike = e => !!e && !e.editable && (e.submit || ['button', 'link'].includes(e.role) && SUBMIT_WORDS.test(e.name ?? ''))
 const originOf = url => { try { return new URL(url).origin } catch { return null } }
 // A judgment stays usable for one target while the document, URL and that
 // target's identity (role, name, context, dialog) are unchanged. Unrelated
@@ -29,7 +26,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const selections = new Selections()
   const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
   const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
-  let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false, pendingInputs = false
+  let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false
   const taskTabs = new Map(), seenValues = new Map(), refused = new Map()
   const timed = async (key, fn) => { const s = now(); try { return await fn() } finally { m[key] += now() - s } }
   // handoffs: every caller round trip with wall-clock times (graders check that
@@ -186,36 +183,10 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     if (selectionPick && valueId) selectionPick.r.valueId = valueId
     if (selections.finishPick(selectionPick, page, history)) emit({ event: 'selection_committed', ref: selectionPick.r.ref, valueId: selectionPick.r.valueId })
     selections.observe(page, history)
-    // Inputs changed since the last submit-like step (Enter, a submit/search
-    // style control, or a navigation) are "pending": DONE is not accepted yet.
-    // Inputs wait for a submit only when a submit-like control is associated:
-    // in the same form; for typed text outside forms, any formless one.
-    // Selects/checkboxes outside forms usually save on change (no submit).
-    const hasSubmitter = el?.form ? page.elements.some(e => e.form === el.form && submitLike(e)) : op === 'type' && page.elements.some(e => !e.form && submitLike(e))
-    if (['type', 'select', 'check'].includes(op) && (hasSubmitter || postcondition === 'unmet')) pendingInputs = true
-    if (op === 'key' || entry.navigated || op === 'click' && submitLike(el)) pendingInputs = false
     stalls = changed || op === 'wait' ? 0 : stalls + 1
     // A click that changed nothing is a failed target, like a refused one.
     if (op === 'click' && !changed && el) { const key = `${page.documentId}|${el.ref}`; refused.set(key, (refused.get(key) ?? 0) + 1) }
     return { sent: true, ...entry }
-  }
-  // Date-like text fields outside a form (custom pickers) often keep typed
-  // text uncommitted until Enter; press it once, as a user would. Inside a
-  // form Enter would submit it, so there it is left to the model.
-  // Search boxes and date fields keep typed text uncommitted until Enter
-  // (custom pickers, formless search boxes). After typing into one, press
-  // Enter once, as a user would. Excluded: POST forms (Enter would submit
-  // them; left to the model and its gates) and, for dates, an open list of
-  // suggestions (a suggestion should be chosen instead).
-  const commitTyped = async el => {
-    const now2 = page.elements.find(e => e.ref === el.ref)
-    if (!now2 || choiceField(now2) || String(now2.formMethod ?? '').toLowerCase() === 'post') return
-    const search = searchLike(now2), date = DATE_LIKE.test(el.name) && !now2.form && !page.elements.some(e => e.role === 'option' && e.inView)
-    if (!search && !date) return
-    // Enter submits the field's form: same risk rule as its submit control.
-    if (now2.form && irreversible(submitterOf(now2, page), page)) return
-    emit({ event: 'auto_commit', ref: el.ref, name: el.name })
-    await exec('key', now2, { key: 'Enter' })
   }
   const OP = { CLICK: 'click', PRESS_ENTER: 'key', SCROLL_DOWN: 'scroll_down', SCROLL_UP: 'scroll_up', WAIT: 'wait', GO_BACK: 'back' }
   // Runs a model- or caller-selected operation after its risk checks.
@@ -258,7 +229,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         for (const e of page.elements) if ((refused.get(`${page.documentId}|${e.ref}`) ?? 0) >= 2) e.unreachable = true
         emit({ event: 'outcome', execution: 'not_sent', code: 'TEXT_REJECTED', why }); return
       }
-      const typedR = await exec('type', el, { text }); if (typedR.sent && !typedR.navigated) await commitTyped(el); return
+      await exec('type', el, { text }); return
     }
     if (op === 'SELECT') { await exec('select', el, { value: target.value }); return }
     if (el?.href && !allowed.has(originOf(el.href))) {
@@ -371,7 +342,6 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
             const same = ownedOptions(page, owner).filter(e => !e.disabled && !e.modalBlocked && norm(e.name) === norm(c.text) && selections.beforePick(page, e))
             if (same.length === 1) { const pick = await exec('click', same[0]); emit({ event: 'autocomplete_pick', valueId: b.valueId, option: same[0].name, sent: pick.sent }) }
           }
-          if (c.op === 'type' && !r.navigated) await commitTyped(el)
           const popup = popups(page).filter(x => !popups(judged).includes(x))
           if (c.op === 'type' && (el.role === 'combobox' || el.hasPopup) && i < bindings.length - 1 && popups(page).some(x => x.startsWith('option:'))) popup.push('combobox_typed')
           if (popup.length || selections.pending(page).length) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'popup_opened', popup: popup.slice(0, 3) }); stopped = true; break }
@@ -400,18 +370,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       if (postBatch && (level === 'R3' || (level === 'R1' ? pOp : p) < (GATES[level] ?? 0) || !el && id || level === 'R2' && p < 0.6)) { emit({ event: 'post_batch', skipped: level }); continue }
       // Never accept a completion claim while an expected navigation has not
       // produced a new document; look again once instead.
-      // A filled form whose submit-like control is still on the page is not a
-      // finished task: submit it if that is the model's CLICK target, else ask.
-      if (op === 'DONE' && pendingInputs && page.elements.some(e => submitLike(e) && !e.disabled && !e.modalBlocked && (!e.form || history.some(h => h.form === e.form)))) {
-        const h = invalid.has('target_CLICK') ? null : answers.target_CLICK, t = h && built.targets.CLICK?.[h.choice], e2 = t && page.elements.find(x => x.ref === t.ref)
-        emit({ event: 'route', why: 'done_with_pending_inputs', target: e2?.name })
-        pendingInputs = false
-        if (e2 && submitLike(e2) && h.probabilities[h.choice] >= 0.5 && !irreversible(e2, page)) { const out = await act('CLICK', t, e2, answers, built); if (out) return out; continue }
-        const picked = await choose(answers, built, 'done_with_unsubmitted_inputs')
-        if (picked.stop) return picked.stop
-        const tgt = picked.id ? built.targets[picked.op][picked.id] : null
-        const out = await act(picked.op, tgt, tgt && page.elements.find(x => x.ref === tgt.ref), answers, built); if (out) return out; continue
-      }
+      // Target heads are speculative: DONE never authorizes their CLICK.
       if (op === 'DONE' && navPending) { navPending = false; emit({ event: 'route', why: 'navigation_pending', op }); await delay(500, undefined, { signal }); await observe(); continue }
       // Search/submit-like targets commit a query or form: use the stricter gate.
       const committing = level === 'R2' && (op === 'PRESS_ENTER' || el?.submit || /\b(search|submit|apply|find)\b/i.test(el?.name ?? ''))
