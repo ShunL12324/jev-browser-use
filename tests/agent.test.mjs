@@ -534,7 +534,7 @@ test('ambiguous namesake suggestions do not execute solely on high CLICK probabi
   const opts = ['North campus', 'South campus'].map(item => button('Example University', { role: 'option', listbox: { ref: 'owned' }, item }))
   const f = fake([field], { hooks: { [field.ref]: s => { s.elements[0].expanded = true; s.elements[0].controls.targets[0].visible = true; s.elements.push(...structuredClone(opts)) } } })
   const asks = async payload => {
-    const r = await answer({ op: s => s.pendingSelections?.length ? ['CLICK', opts[0].ref] : ['WAIT'] })(payload)
+    const r = await answer({ bind: () => payload.state.pendingSelections?.length ? 'not_now' : 0, op: s => s.pendingSelections?.length ? ['CLICK', opts[0].ref] : ['WAIT'] })(payload)
     if (payload.state.pendingSelections?.length) r.answers.target_CLICK = choice(payload.questions.target_CLICK, opts[0].ref, 0.45)
     return r
   }
