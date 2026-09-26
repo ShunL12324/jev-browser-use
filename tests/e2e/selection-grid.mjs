@@ -20,6 +20,10 @@ ${kind==='disabled-cell' ? "item.querySelector('[role=gridcell]').setAttribute('
 ${kind==='disabled-row' ? "item.querySelector('[role=row]').setAttribute('aria-disabled','true');" : ''}
 ${kind==='busy' ? "field.setAttribute('aria-busy','true');" : ''}
 ${kind==='rogue' ? "item.querySelector('[role=gridcell]').insertAdjacentHTML('beforeend','<span tabindex=0 aria-label=Rogue>Rogue</span>');" : ''}
+${['nested','nested-busy','nested-wrong-owner','nested-shadow'].includes(kind) ? `const nest=document.createElement('div');item.append(nest);const nestedRoot=${kind==='nested-shadow'?"nest.attachShadow({mode:'open'})":"nest"};nestedRoot.innerHTML='<div role=grid><div role=row><div role=gridcell><button type=button>Nested action</button></div></div></div>';` : ''}
+${kind==='nested-busy' ? "field.setAttribute('aria-busy','true');" : ''}
+${kind==='nested-wrong-owner' ? "field.setAttribute('aria-controls','missing');" : ''}
+${kind==='standalone' ? "field.removeAttribute('aria-controls');grid.innerHTML='<div role=row><div role=gridcell><button type=button>Calendar day</button></div></div>';grid.querySelector('button').onmousedown=()=>fetch('/picked?kind=standalone');" : ''}
 field.oninput=()=>{grid.hidden=false;field.setAttribute('aria-expanded','true')};
 item.onmousedown=e=>{e.preventDefault();fetch('/picked?kind=${kind}');
 ${kind==='cross-document' ? "location.href='/result';" : `setTimeout(()=>{history.pushState({},'', '/selected');grid.hidden=true;field.setAttribute('aria-expanded','false');${kind==='url-only'?'':"get('display').textContent='350 Fifth Avenue Manhattan';"}},600);`}
@@ -29,17 +33,17 @@ const origin=`http://127.0.0.1:${server.address().port}`
 let browser
 try {
  browser=await launchIsolated()
- for(const kind of ['duplicate-owner','wrong-popup','multi-row','multi-cell','disabled-cell','disabled-row','busy','rogue','hidden','late-disabled-cell','late-disabled-row','lost-role','rebound']){
+ for(const kind of ['duplicate-owner','wrong-popup','multi-row','multi-cell','disabled-cell','disabled-row','busy','rogue','hidden','late-disabled-cell','late-disabled-row','lost-role','rebound','nested','nested-busy','nested-wrong-owner','nested-shadow','late-inner','removed-root-child','standalone']){
   const {tabId}=await browser.call('tabs',{action:'new',url:`${origin}/?kind=${kind}`})
   let p
   for(let i=0;i<30;i++){p=await browser.call('s1',{tabId,action:'agent_observe'});if(p.elements.some(e=>e.name==='Address'))break;await new Promise(r=>setTimeout(r,50))}
   const field=p.elements.find(e=>e.name==='Address');assert.ok(field)
   await browser.call('s1',{tabId,action:'agent_execute',op:'type',ref:field.ref,guard:field.guard,documentId:p.documentId,url:p.url,text:'350 Fifth Avenue Manhattan'})
   let after=await browser.call('s1',{tabId,action:'agent_observe'})
-  let target=after.elements.find(e=>kind==='rogue'?e.name==='Rogue':e.candidate||e.name==='Candidate wrapper');assert.ok(target,kind)
+  let target=after.elements.find(e=>kind==='standalone'?e.name==='Calendar day':kind.startsWith('nested')?e.name==='Nested action':kind==='rogue'?e.name==='Rogue':e.candidate||e.name==='Candidate wrapper');assert.ok(target,kind)
   const execute=t=>browser.call('s1',{tabId,action:'agent_execute',op:'click',ref:t.ref,guard:t.guard,documentId:after.documentId,url:after.url})
   let stale
-  if(['hidden','late-disabled-cell','late-disabled-row','lost-role','rebound'].includes(kind)){
+  if(['hidden','late-disabled-cell','late-disabled-row','lost-role','rebound','late-inner','removed-root-child'].includes(kind)){
    const fixturePage=browser.context.pages().find(p=>p.url()===`${origin}/?kind=${kind}`);assert.ok(fixturePage)
    await fixturePage.evaluate(kind=>{
     if(kind==='hidden')document.querySelector('#grid').style.opacity='0'
@@ -47,11 +51,22 @@ try {
     if(kind==='late-disabled-row')document.querySelector('[role=row]').setAttribute('aria-disabled','true')
     if(kind==='lost-role')document.querySelector('#grid').removeAttribute('role')
     if(kind==='rebound')document.querySelector('#field').setAttribute('aria-controls','missing')
+    if(kind==='late-inner')document.querySelector('#wrapper').insertAdjacentHTML('beforeend','<div role=grid><button type=button>Nested action</button></div>')
+    if(kind==='removed-root-child'){
+      const grid=document.querySelector('#grid');grid.removeAttribute('role');grid.innerHTML='<button type=button>New descendant</button>'
+      grid.querySelector('button').onmousedown=()=>fetch('/picked?kind=removed-root-child')
+    }
    },kind)
    stale=await execute(target);assert.equal(stale.execution,'not_sent',kind+' old observation')
-   after=await browser.call('s1',{tabId,action:'agent_observe'});target=after.elements.find(e=>e.ref===target.ref)
+   after=await browser.call('s1',{tabId,action:'agent_observe'});target=after.elements.find(e=>kind==='late-inner'?e.name==='Nested action':kind==='removed-root-child'?e.name==='New descendant':e.ref===target.ref)
   }
   let rejected
+  if(kind==='standalone'){
+   assert.equal(target.popupMember,null);assert.equal(target.ref in targets(after).CLICK,true)
+   const result=await execute(target);assert.equal(result.execution,'returned')
+   await new Promise(r=>setTimeout(r,50));assert.equal(counts.get(kind),1)
+   records.push({kind,passed:true,clicks:1});await browser.call('tabs',{action:'close',tabId});continue
+  }
   if(target){
    assert.equal(target.popupMember?.status,'rejected',kind)
    assert.equal(target.ref in targets(after).CLICK,false,kind+' must not be routed as ordinary click')

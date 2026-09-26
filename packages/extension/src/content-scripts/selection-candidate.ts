@@ -64,19 +64,31 @@ export function selectionCandidate(el: Element) {
 // membership on the actual node so removing its popup role cannot bypass it.
 type Membership = { popupRef: string; status: 'eligible' | 'rejected'; reason: string }
 const members = new WeakMap<Element, Membership>()
+const choicePopups = new WeakSet<Element>()
 export function selectionMembership(el: Element, candidate = selectionCandidate(el)): Membership | null {
-  const popup = el.closest('[role="listbox"],[role="grid"]')
+  // Walk composed ancestors: an unowned inner grid cannot turn a descendant
+  // of an outer choice popup into a standalone calendar button.
+  const popups: Element[] = []
+  for (let node: Element | null = el; node; node = parent(node)) {
+    if (node.matches('[role="listbox"],[role="grid"]')) {
+      const root = node.getRootNode() as Document | ShadowRoot
+      const id = node.id
+      const controlled = id && Array.from(root.querySelectorAll('[aria-controls]')).some(n => n.matches(choiceOwner) && (n.getAttribute('aria-controls') ?? '').split(/\s+/).includes(id))
+      if (controlled || node.getAttribute('role') === 'listbox') choicePopups.add(node)
+      popups.push(node)
+    } else if (choicePopups.has(node)) popups.push(node)
+  }
+  const popup = popups[0]
   if (!popup) {
     const previous = members.get(el)
     return previous ? { ...previous, status: 'rejected', reason: 'association_lost' } : null
   }
-  const root = el.getRootNode() as Document | ShadowRoot
-  const controlled = popup.id && Array.from(root.querySelectorAll('[aria-controls]')).some(n => n.matches(choiceOwner) && (n.getAttribute('aria-controls') ?? '').split(/\s+/).includes(popup.id))
-  // Ordinary calendar/table buttons outside a choice popup keep their normal
-  // action semantics. Generic row wrappers do not gain this exception.
   const nativeAction = 'button,a[href],input,select,textarea,[role="button"]'
-  if (popup.getAttribute('role') === 'grid' && !controlled && (el.matches(nativeAction) || el.getAttribute('role') === 'gridcell' && el.querySelector(nativeAction)) && !members.has(el)) return null
-  const reason = !candidate ? 'unqualified_popup_member' : candidate.disabled ? 'disabled_entry' : candidate.owner.getAttribute('aria-busy') === 'true' || popup.getAttribute('aria-busy') === 'true' ? 'busy_popup' : ''
+  const choiceContext = popups.some(n => choicePopups.has(n))
+  // Only genuinely standalone, never-choice grids qualify. Remembered popup
+  // roots protect descendants first observed after its role/owner is removed.
+  if (popups.length === 1 && popup.getAttribute('role') === 'grid' && !choiceContext && (el.matches(nativeAction) || el.getAttribute('role') === 'gridcell' && el.querySelector(nativeAction)) && !members.has(el)) return null
+  const reason = popups.length > 1 ? 'nested_popup' : !popup.matches('[role="grid"],[role="listbox"]') ? 'association_lost' : !candidate ? 'unqualified_popup_member' : candidate.disabled ? 'disabled_entry' : candidate.owner.getAttribute('aria-busy') === 'true' || popup.getAttribute('aria-busy') === 'true' ? 'busy_popup' : ''
   const membership: Membership = { popupRef: getOrAssignRef(popup).ref, status: reason ? 'rejected' : 'eligible', reason }
   members.set(el, membership)
   return membership
