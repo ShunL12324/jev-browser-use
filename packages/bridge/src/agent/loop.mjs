@@ -1,13 +1,13 @@
 // browser_task decision loop: observe → one Jev request → policy → guarded
 // execution → event-driven settle. Executed actions are never replayed.
-import { Selections, choiceField, ownedOptions } from './selection.mjs'
+import { Selections, choiceField, ownedOptions, isCandidate } from './selection.mjs'
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
 import { bindCandidates, fits, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
-export const AGENT_PROTOCOL = 5
+export const AGENT_PROTOCOL = 6
 export const OBSERVE_TIMEOUT_MS = Number(process.env.JEV_OBSERVE_TIMEOUT_MS ?? 5000)
 const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
 // Enter in a form submits it: judge it as its submit control (or an unnamed
@@ -173,7 +173,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     // The executor compares on the live element (secrets included); the later
     // observation must also agree where it can (not for redacted secrets).
     const secretInput = !!task.inputs[valueId]?.secret
-    const postcondition = res.applied === false && valueId ? 'unmet' : op === 'click' && el?.role === 'option' && selections.pending(before).length ? 'pending_selection' : op === 'type' && choiceField(el) && !el.password ? 'pending_selection' : !valueId ? undefined : page.documentId !== before.documentId ? 'unknown' : res.applied === false ? 'unmet' : res.redirectedTo ? 'met'
+    const postcondition = res.applied === false && valueId ? 'unmet' : op === 'click' && isCandidate(el) && selections.pending(before).length ? 'pending_selection' : op === 'type' && choiceField(el) && !el.password ? 'pending_selection' : !valueId ? undefined : page.documentId !== before.documentId ? 'unknown' : res.applied === false ? 'unmet' : res.redirectedTo ? 'met'
       : op === 'type' ? (secretInput ? (res.applied ? 'met' : 'unknown') : after?.value === args.text ? 'met' : 'unmet') : op === 'select' ? (after?.value === args.value ? 'met' : 'unmet')
       : op === 'check' ? (after?.checked === args.checked ? 'met' : 'unmet') : op === 'upload' ? (after?.files ? 'met' : 'unmet')
       // A chosen option usually closes its popup; absence or a selected state is success.
@@ -377,7 +377,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       if (op === 'DONE' && navPending) { navPending = false; emit({ event: 'route', why: 'navigation_pending', op }); await delay(500, undefined, { signal }); await observe(); continue }
       // Search/submit-like targets commit a query or form: use the stricter gate.
       const committing = level === 'R2' && (op === 'PRESS_ENTER' || el?.submit || /\b(search|submit|apply|find)\b/i.test(el?.name ?? ''))
-      const choosingOption = op === 'CLICK' && el?.role === 'option' && selections.pending(page).length > 0
+      const choosingOption = op === 'CLICK' && isCandidate(el) && selections.pending(page).length > 0
       const gateP = level === 'R1' && !choosingOption ? pOp : p
       // Joint (operation × target) probability of the choice and its runner-up.
       const joints = Object.entries(opAnswer.probabilities).flatMap(([o, po]) => { const h = invalid.has(`target_${o}`) ? null : answers[`target_${o}`]; return h ? Object.entries(h.probabilities).map(([t, pt]) => [`${o}:${t}`, po * pt]) : [[o, po]] }).sort((a, b) => b[1] - a[1])
@@ -400,7 +400,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       }
       // Or a lower-risk (R0/R1) click the model rated nearly as high, e.g. a
       // suggestion option instead of a Search submit: reversible, once.
-      const alt = why && !choosingOption && why !== 'no_progress' && ['R2', 'R3'].includes(level) && !history.at(-1)?.fallback && joints.map(([k, jp]) => { const [o, t] = k.split(/:(.*)/s); const tg = t && built.targets[o]?.[t], e2 = tg && page.elements.find(x => x.ref === tg.ref); return { o, t, jp, e2, lv: o === 'CLICK' && e2 ? tier(o, e2, page) : null } }).find(c => c.e2 && !(c.e2.role === 'option' && selections.pending(page).length) && ['R0', 'R1'].includes(c.lv) && c.jp >= 0.3)
+      const alt = why && !choosingOption && why !== 'no_progress' && ['R2', 'R3'].includes(level) && !history.at(-1)?.fallback && joints.map(([k, jp]) => { const [o, t] = k.split(/:(.*)/s); const tg = t && built.targets[o]?.[t], e2 = tg && page.elements.find(x => x.ref === tg.ref); return { o, t, jp, e2, lv: o === 'CLICK' && e2 ? tier(o, e2, page) : null } }).find(c => c.e2 && !(isCandidate(c.e2) && selections.pending(page).length) && ['R0', 'R1'].includes(c.lv) && c.jp >= 0.3)
       if (alt) {
         emit({ event: 'route', why, op, id, p, level, fallback: `${alt.o}:${alt.t}` })
         await act(alt.o, built.targets[alt.o][alt.t], alt.e2, answers, built); if (history.length) history.at(-1).fallback = true

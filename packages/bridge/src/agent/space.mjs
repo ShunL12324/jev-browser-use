@@ -1,4 +1,4 @@
-import { selectionAllows } from './selection.mjs'
+import { selectionAllows, isCandidate } from './selection.mjs'
 // Action space over one observation: which operations and targets exist, which
 // supplied inputs each field could receive, and deterministic risk tiers.
 // Only observed element facts are used; there is no site knowledge here.
@@ -77,14 +77,14 @@ export function bindCandidates(page, input, used) {
   // Secrets are origin-bound for the acting document, not just at start.
   if (input.secret) { let origin; try { origin = new URL(page.url).origin } catch { return out } if (!input.origins?.includes(origin)) return out }
   for (const e of page.elements.filter(e => usable(e) && selectionAllows(page, e))) {
-    if (used.has(e.ref) || page.selections?.some(s => s.ref === e.ref && s.status !== 'invalidated') || page.selections?.length && e.role !== 'option' && !page.selections.some(s => s.ref === e.ref && s.status === 'invalidated')) continue
+    if (used.has(e.ref) || page.selections?.some(s => s.ref === e.ref && s.status !== 'invalidated') || page.selections?.length && !isCandidate(e) && !page.selections.some(s => s.ref === e.ref && s.status === 'invalidated')) continue
     if (input.fileId) { if (e.inputType === 'file' && !e.files) out[e.ref] = { ref: e.ref, op: 'upload' }; continue }
     const v = String(input.value)
     if (e.inputType === 'checkbox') { if (['true', 'false'].includes(v) && e.checked !== (v === 'true')) out[e.ref] = { ref: e.ref, op: 'check', checked: v === 'true' }; continue }
     if (e.inputType === 'radio') { if (!e.checked && norm(e.name) === norm(v)) out[e.ref] = { ref: e.ref, op: 'check', checked: true }; continue }
     if (e.tag === 'select') { const o = e.options?.find(o => !o.disabled && (norm(o.label) === norm(v) || norm(o.value) === norm(v))); if (o && o.value !== e.value) out[e.ref] = { ref: e.ref, op: 'select', value: o.value }; continue }
     // Custom choice widgets: an option/radio/tab whose accessible name is the value.
-    if (['option', 'menuitemradio', 'radio', 'tab'].includes(e.role) && !e.editable && norm(e.name) === norm(v) && e.selected !== true && e.checked !== true) { out[e.ref] = { ref: e.ref, op: 'click' }; continue }
+    if ((isCandidate(e) || ['menuitemradio', 'radio', 'tab'].includes(e.role)) && !e.editable && norm(e.name) === norm(v) && e.selected !== true && e.checked !== true) { out[e.ref] = { ref: e.ref, op: 'click' }; continue }
     if (e.editable && (!e.password || input.secret) && typed(e, v) && e.value !== v) out[e.ref] = { ref: e.ref, op: 'type', text: v }
   }
   return out

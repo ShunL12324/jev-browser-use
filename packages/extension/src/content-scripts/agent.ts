@@ -1,3 +1,4 @@
+import { selectionCandidate } from './selection-candidate'
 // browser_task page side: one synchronous observation of the top document
 // (shadow roots included), guarded execution and a short event-driven settle.
 // The bridge decides; this file only reads facts and performs one operation.
@@ -19,10 +20,11 @@ const inView = (r: DOMRect) => r.bottom > 0 && r.right > 0 && r.top < innerHeigh
 const editable = (el: Element) => el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement && textTypes.has(el.type) || (el as HTMLElement).isContentEditable
 // Target plus nearby form/dialog/row text: unrelated page updates stay fresh.
 function guard(el: Element) {
+  const candidate = selectionCandidate(el)
   const f = facts(el), scope = el.closest('form,dialog,[role="dialog"],fieldset,li,tr,[role="row"],[role="listbox"]') ?? el.parentElement
   const root = el.getRootNode() as Document | ShadowRoot
   const owners = f.listbox ? Array.from(root.querySelectorAll('[aria-controls]')).filter(owner => facts(owner).controls.targets.some(t => t.ref === f.listbox!.ref)).map(owner => { const o = facts(owner); return [getOrAssignRef(owner).ref, o.value, o.expanded, owner.getAttribute('aria-busy')] }) : []
-  return hash(JSON.stringify([owners, el.closest('[role="listbox"]')?.getAttribute('aria-busy'), f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.readonly, f.context, f.dialog, f.controls, f.listbox, el.getAttribute('aria-busy'), scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
+  return hash(JSON.stringify([candidate ? [candidate.facts, (candidate.owner as HTMLInputElement).value, candidate.owner.getAttribute('aria-expanded'), candidate.owner.getAttribute('aria-busy'), candidate.popup.getAttribute('aria-busy')] : null, owners, el.closest('[role="listbox"]')?.getAttribute('aria-busy'), f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.readonly, f.context, f.dialog, f.controls, f.listbox, el.getAttribute('aria-busy'), scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
 }
 // Text of the list item / row / card holding a control, when it adds to the
 // control's own name (e.g. which reservation a "Cancel" button belongs to).
@@ -80,16 +82,25 @@ function observe(limit: number) {
   // the budget so the controls around them (Done, next month) still fit.
   let cells = 0
   const picked = near.filter(it => !isCell(findByRef(it.ref)!) || cells++ < limit / 2).slice(0, limit)
+  const seenEntries = new Set<string>()
   const elements = picked.map(it => {
     const el = findByRef(it.ref)!, f = facts(el), r = el.getBoundingClientRect()
+    const candidate = selectionCandidate(el)
     const input = el instanceof HTMLInputElement ? el : null
-    return { ref: it.ref, role: f.role, name: f.name, tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.role === 'combobox' && !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) ? (el as HTMLElement).innerText?.trim().slice(0, 120) || null : f.value,
+    return { ref: it.ref, role: f.role, name: candidate?.label ?? f.name, candidate: candidate?.facts, tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.role === 'combobox' && !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) ? (el as HTMLElement).innerText?.trim().slice(0, 120) || null : f.value,
       controls: f.controls, listbox: f.listbox, busy: el.getAttribute('aria-busy') === 'true', invalid: el.getAttribute('aria-invalid') === 'true' || f.valid === false, autocomplete: el.getAttribute('aria-autocomplete'), displayValue: (el as HTMLElement).innerText?.trim().slice(0, 120),
       checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert, readonly: f.readonly, required: f.required, valid: f.valid,
       modalBlocked: f.modalBlocked, dialog: f.dialog, context: f.context, href: f.href, options: f.options, files: f.files?.length, editable: editable(el) && !f.readonly,
       password: input?.type === 'password', submit: f.buttonType === 'submit' || input?.type === 'submit' || input?.type === 'image', formMethod: (el as HTMLInputElement).form?.method ?? null,
       payment: /^cc-/.test(el.getAttribute('autocomplete') ?? ''), inView: inView(r), shadow: f.shadowContext, nameTruncated: f.nameTruncated, form: (el as HTMLInputElement).form ? getOrAssignRef((el as HTMLInputElement).form!).ref : null, item: isCell(el) ? groupLabel(el) : itemText(el, f.name), placeholder: el.getAttribute('placeholder'), guard: guard(el), top: Math.round(r.top + scrollY), left: Math.round(r.left + scrollX) }
   })
+  // One semantic entry may be exposed as both a wrapper and a grid cell.
+  for (let i = 0; i < elements.length;) {
+    const entry = elements[i]!.candidate?.entryRef
+    if (entry && seenEntries.has(entry)) { elements.splice(i, 1); continue }
+    if (entry) seenEntries.add(entry)
+    i++
+  }
   // The budget keeps the elements nearest the viewport; the model reads them
   // in page order, which is how forms and lists make sense.
   elements.sort((a, b) => a.top - b.top || a.left - b.left)

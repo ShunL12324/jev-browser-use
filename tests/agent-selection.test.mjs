@@ -119,3 +119,36 @@ test('reset preserves a pending obligation and offers its field for rebinding', 
   assert.equal(b.payload.state.inputs.school.status, 'pending')
   assert.ok(Object.values(b.binds).some(x => x.candidates.field))
 })
+
+test('explicitly owned grid wrapper participates in fresh selection and preserves secondary text', () => {
+  const s = new Selections(), history = []
+  const field = owner({ name: 'Address', hasPopup: 'grid', controls: { status: 'known', targets: [{ ref: 'grid', role: 'grid', visible: true }] } })
+  const item = { ...option(), role: 'generic', listbox: null, name: '350 Fifth Avenue Manhattan', candidate: { source: 'explicit_controlled_popup', ownerRef: 'field', popupRef: 'grid', entryRef: 'cell' } }
+  const before = page(field), after = page({ ...field, value: '350 Fifth' }, item)
+  s.begin(before, after, field, '350 Fifth', 'address'); s.observe(after, history)
+  assert.deepEqual(ownedOptions(after, field), [item]); assert.equal(selectionAllows(after, item), true)
+  const pick = s.beforePick(after, item); assert.ok(pick)
+  after.elements[0].value = '350 Fifth Avenue Manhattan'; after.elements[0].expanded = false; field.controls.targets[0].visible = false
+  assert.equal(s.finishPick(pick, after, history), true)
+  assert.equal(history[0].selectedOption, '350 Fifth Avenue Manhattan')
+})
+test('grid candidate cannot cross owner or popup associations or bypass query freshness', () => {
+  for (const candidate of [
+    { ownerRef: 'other', popupRef: 'list' }, { ownerRef: 'field', popupRef: 'wrong' }
+  ]) {
+    const { s, after } = query({ afterOptions: [] })
+    const item = { ...option(), role: 'generic', candidate: { source: 'explicit_controlled_popup', ...candidate } }
+    after.elements.push(item)
+    assert.equal(s.beforePick(after, item), null); assert.equal(selectionAllows(after, item), false)
+  }
+})
+test('cross-document pick retains an unconfirmed obligation and a fresh result wait budget', () => {
+  const { s, after, history } = query(), pick = s.beforePick(after, after.elements[1])
+  pick.r.started -= 10000 // suggestion wait is already spent
+  const next = { ...page(), documentId: 'next', url: 'http://example.test/place', text: 'Example University' }
+  assert.equal(s.finishPick(pick, next, history), false); s.observe(next, history)
+  assert.equal(next.selections.length, 1); assert.equal(next.selections[0].status, 'confirming')
+  assert.equal(s.waiting(next), true); assert.equal(history.length, 0)
+  pick.r.started -= 4000; assert.equal(s.waiting(next), false)
+  assert.equal(next.selections.length, 1) // timeout or URL/name match cannot clear it
+})
