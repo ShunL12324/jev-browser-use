@@ -38,9 +38,9 @@ export function facts(el: Element, active = dialogs()) {
   const ariaBoolean = (name: string) => el.getAttribute(name) === 'true' ? true : el.getAttribute(name) === 'false' ? false : null
   const popup = el.getAttribute('aria-haspopup')
   const listbox = el.parentElement?.closest('[role="listbox"]')
-  const relationTarget = (target: Element) => ({ ref: getOrAssignRef(target).ref, role: deriveRole(target), name: deriveName(target, 200), nameTruncated: deriveName(target, 10000).length > 200, visible: visible(target) })
+  const relationTarget = (target: Element) => ({ ref: getOrAssignRef(target).ref, role: deriveRole(target), name: deriveName(target, 200), nameTruncated: deriveName(target, 10000).length > 200, visible: visible(target), busy: target.getAttribute('aria-busy') === 'true' })
   const controlsIds = el.getAttribute('aria-controls')?.trim().split(/\s+/).filter(Boolean) ?? []
-  const controlsTargets = controlsIds.length <= 20 ? controlsIds.map(id => Array.from(document.querySelectorAll('[id]')).filter(target => target.id === id)) : []
+  const controlsTargets = controlsIds.length <= 20 ? controlsIds.map(id => Array.from((el.getRootNode() as Document | ShadowRoot).querySelectorAll('[id]')).filter(target => target.id === id)) : []
   const controlsKnown = controlsIds.length > 0 && controlsIds.length <= 20 && controlsTargets.every(matches => matches.length === 1)
   const controls = { source: 'aria-controls', status: !controlsIds.length ? 'absent' : controlsKnown ? 'known' : 'unknown', targets: controlsKnown ? controlsTargets.map(matches => relationTarget(matches[0]!)) : [] }
   const ids = el.getAttribute('aria-labelledby')?.trim().split(/\s+/) ?? []

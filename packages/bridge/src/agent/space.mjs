@@ -1,3 +1,4 @@
+import { selectionAllows } from './selection.mjs'
 // Action space over one observation: which operations and targets exist, which
 // supplied inputs each field could receive, and deterministic risk tiers.
 // Only observed element facts are used; there is no site knowledge here.
@@ -31,7 +32,7 @@ export function describe(e) {
 // may retype, reselect or toggle them (bind owns them).
 export function targets(page, used = new Set()) {
   const out = { CLICK: {}, TYPE_TEXT: {}, SELECT: {}, PRESS_ENTER: {}, SWITCH_TAB: {}, CLOSE_TAB: {} }
-  for (const e of page.elements.filter(usable)) {
+  for (const e of page.elements.filter(e => usable(e) && selectionAllows(page, e))) {
     if (e.inputType === 'file' || e.password) continue
     if (used.has(e.ref)) { if (e.editable && e.value && (e.tag !== 'textarea' || searchLike(e))) out.PRESS_ENTER[e.ref] = { ref: e.ref }; continue }
     // Unnamed controls give the model nothing to judge; they stay unoffered.
@@ -75,8 +76,8 @@ export function bindCandidates(page, input, used) {
   const out = {}
   // Secrets are origin-bound for the acting document, not just at start.
   if (input.secret) { let origin; try { origin = new URL(page.url).origin } catch { return out } if (!input.origins?.includes(origin)) return out }
-  for (const e of page.elements.filter(usable)) {
-    if (used.has(e.ref)) continue
+  for (const e of page.elements.filter(e => usable(e) && selectionAllows(page, e))) {
+    if (used.has(e.ref) || page.selections?.some(s => s.ref === e.ref) || page.selections?.length && e.role !== 'option') continue
     if (input.fileId) { if (e.inputType === 'file' && !e.files) out[e.ref] = { ref: e.ref, op: 'upload' }; continue }
     const v = String(input.value)
     if (e.inputType === 'checkbox') { if (['true', 'false'].includes(v) && e.checked !== (v === 'true')) out[e.ref] = { ref: e.ref, op: 'check', checked: v === 'true' }; continue }

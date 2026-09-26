@@ -2,13 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { tier, irreversible, bindCandidates, targets } from '../packages/bridge/src/agent/space.mjs'
 import { build, invalidAnswers } from '../packages/bridge/src/agent/jev.mjs'
-import { runTask } from '../packages/bridge/src/agent/loop.mjs'
+import { runTask, AGENT_PROTOCOL } from '../packages/bridge/src/agent/loop.mjs'
 
 const origin = 'http://127.0.0.1:17441'
 let n = 0
 const el = (name, extra = {}) => ({ ref: `e${++n}`, role: 'textbox', name, tag: 'input', inputType: 'text', value: '', checked: null, selected: null, expanded: null, hasPopup: null, disabled: false, readonly: false, modalBlocked: false, dialog: null, context: [], href: null, editable: true, password: false, submit: false, formMethod: 'get', payment: false, inView: true, guard: 'g', ...extra })
 const button = (name, extra = {}) => el(name, { role: 'button', tag: 'button', inputType: null, editable: false, value: null, ...extra })
-const page = (elements, extra = {}) => ({ agentProtocol: 2, documentId: 'd1', url: origin + '/', title: 'T', text: '', scroll: { y: 0, height: 900, viewport: 900 }, elements, omitted: 0, marker: 'm', ...extra })
+const page = (elements, extra = {}) => ({ agentProtocol: AGENT_PROTOCOL, documentId: 'd1', url: origin + '/', title: 'T', text: '', scroll: { y: 0, height: 900, viewport: 900 }, elements, omitted: 0, marker: 'm', ...extra })
 const task = (extra = {}) => ({ goal: 'g', startUrl: origin + '/', allowedOrigins: [origin], inputs: {}, irreversible: 'confirm', llm: 'handoff', budgets: { maxSteps: 20, maxJevRequests: 6, timeoutMs: 10000 }, ...extra })
 const choice = (q, pick, p = 1) => ({ type: 'choice', choice: pick, probabilities: Object.fromEntries(Object.keys(q.criteria).map(k => [k, k === pick ? p : (1 - p) / Math.max(1, Object.keys(q.criteria).length - 1)])) })
 
@@ -504,4 +504,41 @@ test('a hanging first observation times out and triggers the read-only startup r
   g.call = async (name, args) => args.action === 'agent_observe' ? new Promise(() => {}) : gcall(name, args)
   const r = await run3(task(), { call: g.call, ask: answer(), handoff: async () => ({}) })
   assert.equal(r.code, 'OBSERVE_TIMEOUT')
+})
+
+test('searchable school query cannot auto-Enter, pick another list, or accept DONE', async () => {
+  const field = el('Search school', { role: 'combobox', expanded: true, controls: { status: 'known', targets: [{ ref: 'owned', visible: true }] } })
+  const wrong = button('Example University', { role: 'option', listbox: { ref: 'other' } })
+  const f = fake([field, wrong])
+  const t = task({ inputs: { school: { value: 'Example University', purpose: 'school' } }, llm: 'none' })
+  const { result } = await run(t, f, answer())
+  assert.equal(result.status, 'blocked'); assert.equal(result.reason, 'selection_unconfirmed')
+  assert.deepEqual(f.s.executed.map(e => e.op), ['type'])
+})
+
+test('fresh owned suggestion is committed instead of only marking its query applied', async () => {
+  const field = el('School', { role: 'combobox', expanded: false, controls: { status: 'known', targets: [{ ref: 'owned', visible: false }] } })
+  const opt = button('Example University', { role: 'option', listbox: { ref: 'owned' } })
+  const f = fake([field], { hooks: {
+    [field.ref]: s => { s.elements[0].expanded = true; s.elements[0].controls.targets[0].visible = true; s.elements.push(structuredClone(opt)) },
+    [opt.ref]: s => { s.elements[0].expanded = false; s.elements[0].controls.targets[0].visible = false; s.elements = s.elements.filter(e => e.ref !== opt.ref) }
+  } })
+  const { result, events } = await run(task({ inputs: { school: { value: 'Example University', purpose: 'school' } } }), f, answer())
+  assert.equal(result.status, 'done')
+  assert.deepEqual(f.s.executed.map(e => e.op), ['type', 'click'])
+  assert.ok(events.some(e => e.event === 'selection_committed'))
+})
+
+test('ambiguous namesake suggestions do not execute solely on high CLICK probability', async () => {
+  const field = el('School', { role: 'combobox', controls: { status: 'known', targets: [{ ref: 'owned', visible: false }] } })
+  const opts = ['North campus', 'South campus'].map(item => button('Example University', { role: 'option', listbox: { ref: 'owned' }, item }))
+  const f = fake([field], { hooks: { [field.ref]: s => { s.elements[0].expanded = true; s.elements[0].controls.targets[0].visible = true; s.elements.push(...structuredClone(opts)) } } })
+  const asks = async payload => {
+    const r = await answer({ op: s => s.pendingSelections?.length ? ['CLICK', opts[0].ref] : ['WAIT'] })(payload)
+    if (payload.state.pendingSelections?.length) r.answers.target_CLICK = choice(payload.questions.target_CLICK, opts[0].ref, 0.45)
+    return r
+  }
+  const { result } = await run(task({ inputs: { school: { value: 'Example University', purpose: 'school' } }, llm: 'none' }), f, asks)
+  assert.equal(result.status, 'blocked')
+  assert.deepEqual(f.s.executed.map(e => e.op), ['type'])
 })

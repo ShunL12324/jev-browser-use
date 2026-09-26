@@ -19,7 +19,9 @@ const editable = (el: Element) => el instanceof HTMLTextAreaElement || el instan
 // Target plus nearby form/dialog/row text: unrelated page updates stay fresh.
 function guard(el: Element) {
   const f = facts(el), scope = el.closest('form,dialog,[role="dialog"],fieldset,li,tr,[role="row"],[role="listbox"]') ?? el.parentElement
-  return hash(JSON.stringify([f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.readonly, f.context, f.dialog, scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
+  const root = el.getRootNode() as Document | ShadowRoot
+  const owners = f.listbox ? Array.from(root.querySelectorAll('[aria-controls]')).filter(owner => facts(owner).controls.targets.some(t => t.ref === f.listbox!.ref)).map(owner => { const o = facts(owner); return [getOrAssignRef(owner).ref, o.value, o.expanded, owner.getAttribute('aria-busy')] }) : []
+  return hash(JSON.stringify([owners, el.closest('[role="listbox"]')?.getAttribute('aria-busy'), f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.readonly, f.context, f.dialog, f.controls, f.listbox, el.getAttribute('aria-busy'), scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
 }
 // Text of the list item / row / card holding a control, when it adds to the
 // control's own name (e.g. which reservation a "Cancel" button belongs to).
@@ -81,6 +83,7 @@ function observe(limit: number) {
     const el = findByRef(it.ref)!, f = facts(el), r = el.getBoundingClientRect()
     const input = el instanceof HTMLInputElement ? el : null
     return { ref: it.ref, role: f.role, name: f.name, tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.role === 'combobox' && !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) ? (el as HTMLElement).innerText?.trim().slice(0, 120) || null : f.value,
+      controls: f.controls, listbox: f.listbox, busy: el.getAttribute('aria-busy') === 'true', invalid: el.getAttribute('aria-invalid') === 'true' || f.valid === false, autocomplete: el.getAttribute('aria-autocomplete'), displayValue: (el as HTMLElement).innerText?.trim().slice(0, 120),
       checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert, readonly: f.readonly, required: f.required, valid: f.valid,
       modalBlocked: f.modalBlocked, dialog: f.dialog, context: f.context, href: f.href, options: f.options, files: f.files?.length, editable: editable(el) && !f.readonly,
       password: input?.type === 'password', submit: f.buttonType === 'submit' || input?.type === 'submit' || input?.type === 'image', formMethod: (el as HTMLInputElement).form?.method ?? null,

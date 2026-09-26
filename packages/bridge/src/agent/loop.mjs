@@ -1,12 +1,13 @@
 // browser_task decision loop: observe → one Jev request → policy → guarded
 // execution → event-driven settle. Executed actions are never replayed.
+import { Selections, choiceField, ownedOptions } from './selection.mjs'
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
 import { bindCandidates, fits, searchLike, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
-export const AGENT_PROTOCOL = 2
+export const AGENT_PROTOCOL = 4
 export const OBSERVE_TIMEOUT_MS = Number(process.env.JEV_OBSERVE_TIMEOUT_MS ?? 5000)
 const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
 // Enter in a form submits it: judge it as its submit control (or an unnamed
@@ -25,6 +26,7 @@ const sameTarget = (judged, page, ref) => { const a = judged.elements.find(e => 
 
 export async function runTask(task, { call, ask, handoff, emit = () => {}, signal, files = () => { throw new RunError('FILE_UNAUTHORIZED', 'No file manifest.') } }) {
   const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
+  const selections = new Selections()
   const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
   const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
   let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false, pendingInputs = false
@@ -68,6 +70,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     for (const e of page.elements) if ((refused.get(`${page.documentId}|${e.ref}`) ?? 0) >= 2) e.unreachable = true
     // After secret redaction: remembered values never include secrets.
     for (const v of pageValues(page.text)) { seenValues.delete(v); seenValues.set(v, { text: v, source: page.title }) }
+    selections.observe(page, history)
     emit({ event: 'observation', documentId: page.documentId, build: page.build, url: page.url, elements: page.elements.length, omitted: page.omitted, textChars: page.text.length })
     return page
   }
@@ -124,6 +127,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   // Executes one operation on the current page, then settles and re-observes.
   const exec = async (op, el, args = {}, valueId, quick = false) => {
     const before = page
+    const selectionPick = op === 'click' ? selections.beforePick(before, el) : null
     const request = { action: 'agent_execute', documentId: page.documentId, url: page.url, op, ...(el ? { ref: el.ref, guard: el.guard } : {}), ...args }
     if (op === 'upload') { request.files = [files(args.fileId)]; delete request.fileId }
     const secret = valueId && task.inputs[valueId]?.secret ? task.inputs[valueId] : null
@@ -169,7 +173,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     // The executor compares on the live element (secrets included); the later
     // observation must also agree where it can (not for redacted secrets).
     const secretInput = !!task.inputs[valueId]?.secret
-    const postcondition = !valueId ? undefined : page.documentId !== before.documentId ? 'unknown' : res.applied === false ? 'unmet' : res.redirectedTo ? 'met'
+    const postcondition = res.applied === false && valueId ? 'unmet' : op === 'click' && el?.role === 'option' && selections.pending(before).length ? 'pending_selection' : op === 'type' && choiceField(el) && !el.password ? 'pending_selection' : !valueId ? undefined : page.documentId !== before.documentId ? 'unknown' : res.applied === false ? 'unmet' : res.redirectedTo ? 'met'
       : op === 'type' ? (secretInput ? (res.applied ? 'met' : 'unknown') : after?.value === args.text ? 'met' : 'unmet') : op === 'select' ? (after?.value === args.value ? 'met' : 'unmet')
       : op === 'check' ? (after?.checked === args.checked ? 'met' : 'unmet') : op === 'upload' ? (after?.files ? 'met' : 'unmet')
       // A chosen option usually closes its popup; absence or a selected state is success.
@@ -178,6 +182,10 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     // Refs are per document: every record carries the document it acted on.
     const entry = { doc: before.documentId, op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(newText ? { newText } : {}), ...(confirmDenied !== undefined ? { confirmDenied } : {}), ...(res.redirectedTo ? { typedInto: `covering field ${res.redirectedTo}` } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
+    if (op === 'type' && postcondition !== 'unmet' || op === 'click' && choiceField(el) && !el.editable && !selections.pending(before).some(s => s.ref === el.ref)) selections.begin(before, page, el, args.text ?? '', valueId)
+    if (selectionPick && valueId) selectionPick.r.valueId = valueId
+    if (selections.finishPick(selectionPick, page, history)) emit({ event: 'selection_committed', ref: selectionPick.r.ref, valueId: selectionPick.r.valueId })
+    selections.observe(page, history)
     // Inputs changed since the last submit-like step (Enter, a submit/search
     // style control, or a navigation) are "pending": DONE is not accepted yet.
     // Inputs wait for a submit only when a submit-like control is associated:
@@ -201,7 +209,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   // suggestions (a suggestion should be chosen instead).
   const commitTyped = async el => {
     const now2 = page.elements.find(e => e.ref === el.ref)
-    if (!now2 || String(now2.formMethod ?? '').toLowerCase() === 'post') return
+    if (!now2 || choiceField(now2) || String(now2.formMethod ?? '').toLowerCase() === 'post') return
     const search = searchLike(now2), date = DATE_LIKE.test(el.name) && !now2.form && !page.elements.some(e => e.role === 'option' && e.inView)
     if (!search && !date) return
     // Enter submits the field's form: same risk rule as its submit control.
@@ -212,7 +220,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const OP = { CLICK: 'click', PRESS_ENTER: 'key', SCROLL_DOWN: 'scroll_down', SCROLL_UP: 'scroll_up', WAIT: 'wait', GO_BACK: 'back' }
   // Runs a model- or caller-selected operation after its risk checks.
   const act = async (op, target, el, answers, built) => {
-    if (op === 'DONE') return result('done', { verification: 'model_done' })
+    if (op === 'DONE') return selections.pending(page).length ? result('blocked', { reason: 'selection_unconfirmed', pendingSelections: selections.pending(page) }) : result('done', { verification: 'model_done' })
     if (op === 'SWITCH_TAB' || op === 'CLOSE_TAB') {
       const before = page
       if (op === 'CLOSE_TAB') { await call('tabs', { action: 'close', tabId: target.tabId }, signal).catch(() => {}); taskTabs.delete(target.tabId) } else await focusTab(target.tabId)
@@ -315,6 +323,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         if (!ok.approve) return result('blocked', { reason: 'origin_denied' })
         allowed.add(originOf(page.url))
       }
+      if (selections.waiting(page)) { await delay(100, undefined, { signal }); await observe(); continue }
       const built = build(page, task, history, [...seenValues.values()])
       m.jevRequests++
       const response = await timed('jevMs', () => ask(built.payload, { signal }))
@@ -358,13 +367,14 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
           // Autocomplete: when exactly one offered option is the typed value
           // itself, choosing it completes the same fill (like a native select).
           if (c.op === 'type' && (el.role === 'combobox' || el.hasPopup)) {
-            const same = page.elements.filter(e => e.role === 'option' && !e.disabled && norm(e.name) === norm(c.text))
+            const owner = page.elements.find(e => e.ref === el.ref)
+            const same = ownedOptions(page, owner).filter(e => !e.disabled && !e.modalBlocked && norm(e.name) === norm(c.text) && selections.beforePick(page, e))
             if (same.length === 1) { const pick = await exec('click', same[0]); emit({ event: 'autocomplete_pick', valueId: b.valueId, option: same[0].name, sent: pick.sent }) }
           }
           if (c.op === 'type' && !r.navigated) await commitTyped(el)
           const popup = popups(page).filter(x => !popups(judged).includes(x))
           if (c.op === 'type' && (el.role === 'combobox' || el.hasPopup) && i < bindings.length - 1 && popups(page).some(x => x.startsWith('option:'))) popup.push('combobox_typed')
-          if (popup.length) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'popup_opened', popup: popup.slice(0, 3) }); stopped = true; break }
+          if (popup.length || selections.pending(page).length) { emit({ event: 'batch_stopped', valueId: b.valueId, reason: 'popup_opened', popup: popup.slice(0, 3) }); stopped = true; break }
         }
         // The operation head was asked for the step after this cycle's
         // inputs. Consume it only when every judged input settled cleanly on
@@ -405,7 +415,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       if (op === 'DONE' && navPending) { navPending = false; emit({ event: 'route', why: 'navigation_pending', op }); await delay(500, undefined, { signal }); await observe(); continue }
       // Search/submit-like targets commit a query or form: use the stricter gate.
       const committing = level === 'R2' && (op === 'PRESS_ENTER' || el?.submit || /\b(search|submit|apply|find)\b/i.test(el?.name ?? ''))
-      const gateP = level === 'R1' ? pOp : p
+      const choosingOption = op === 'CLICK' && el?.role === 'option' && selections.pending(page).length > 0
+      const gateP = level === 'R1' && !choosingOption ? pOp : p
       // Joint (operation × target) probability of the choice and its runner-up.
       const joints = Object.entries(opAnswer.probabilities).flatMap(([o, po]) => { const h = invalid.has(`target_${o}`) ? null : answers[`target_${o}`]; return h ? Object.entries(h.probabilities).map(([t, pt]) => [`${o}:${t}`, po * pt]) : [[o, po]] }).sort((a, b) => b[1] - a[1])
       const mine = joints.find(([k]) => k === (id ? `${op}:${id}` : op))?.[1] ?? 0, rival = joints.find(([k]) => k !== (id ? `${op}:${id}` : op))?.[1] ?? 0
@@ -414,7 +425,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       // No progress only counts against an action already tried recently: a
       // different, new action (e.g. dismissing what blocked the others) runs.
       const tried = !el || history.slice(-3).some(h => h.ref === el.ref)
-      let why = op === 'BLOCKED' ? 'model_blocked' : gateP < (safeNav ? SAFE_NAV_GATE : committing ? SUBMIT_GATE : GATES[level] ?? 0) || thin ? `p=${gateP.toFixed(2)}${thin ? ` margin ${(mine / Math.max(rival, 1e-9)).toFixed(2)}` : ''} below ${level} gate` : stalls >= 3 && tried || repeats.get(repeatKey) > 2 ? 'no_progress'
+      let why = op === 'BLOCKED' ? 'model_blocked' : gateP < (choosingOption ? 0.6 : safeNav ? SAFE_NAV_GATE : committing ? SUBMIT_GATE : GATES[level] ?? 0) || thin ? `p=${gateP.toFixed(2)}${thin ? ` margin ${(mine / Math.max(rival, 1e-9)).toFixed(2)}` : ''} below ${level} gate` : stalls >= 3 && tried || repeats.get(repeatKey) > 2 ? 'no_progress'
         : unresolved.length && ['R2', 'R3'].includes(level) ? `unresolved inputs: ${unresolved.map(d => d.valueId).join(', ')}` : null
       if (why === 'no_progress' && ++stallHandoffs > 2) return result('blocked', { reason: 'no_progress' })
       // Below a gate, first try the safest informative step the model also
@@ -427,7 +438,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       }
       // Or a lower-risk (R0/R1) click the model rated nearly as high, e.g. a
       // suggestion option instead of a Search submit: reversible, once.
-      const alt = why && why !== 'no_progress' && ['R2', 'R3'].includes(level) && !history.at(-1)?.fallback && joints.map(([k, jp]) => { const [o, t] = k.split(/:(.*)/s); const tg = t && built.targets[o]?.[t], e2 = tg && page.elements.find(x => x.ref === tg.ref); return { o, t, jp, e2, lv: o === 'CLICK' && e2 ? tier(o, e2, page) : null } }).find(c => c.e2 && ['R0', 'R1'].includes(c.lv) && c.jp >= 0.3)
+      const alt = why && !choosingOption && why !== 'no_progress' && ['R2', 'R3'].includes(level) && !history.at(-1)?.fallback && joints.map(([k, jp]) => { const [o, t] = k.split(/:(.*)/s); const tg = t && built.targets[o]?.[t], e2 = tg && page.elements.find(x => x.ref === tg.ref); return { o, t, jp, e2, lv: o === 'CLICK' && e2 ? tier(o, e2, page) : null } }).find(c => c.e2 && !(c.e2.role === 'option' && selections.pending(page).length) && ['R0', 'R1'].includes(c.lv) && c.jp >= 0.3)
       if (alt) {
         emit({ event: 'route', why, op, id, p, level, fallback: `${alt.o}:${alt.t}` })
         await act(alt.o, built.targets[alt.o][alt.t], alt.e2, answers, built); if (history.length) history.at(-1).fallback = true
