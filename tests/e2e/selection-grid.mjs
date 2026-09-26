@@ -9,13 +9,14 @@ import { runTask } from '../../packages/bridge/dist/agent/loop.mjs'
 import { prepareTask } from '../../packages/bridge/dist/agent/task.mjs'
 const counts = new Map(), records = []
 const fixture = kind => `<!doctype html><style>input,[tabindex]{padding:12px;margin:8px}[role=gridcell]{padding:12px}</style><div id=host></div><script>
-const root=${['shadow','intermediate-shadow','aggregate-shadow'].includes(kind) ? "document.querySelector('#host').attachShadow({mode:'open'})" : "document.querySelector('#host')"};
+const root=${['shadow','intermediate-shadow','aggregate-shadow','grid-aggregate-shadow'].includes(kind) ? "document.querySelector('#host').attachShadow({mode:'open'})" : "document.querySelector('#host')"};
 root.innerHTML='<div><label for=field>Address</label><input id=field role=combobox aria-controls=grid aria-haspopup=grid aria-expanded=false><span id=display></span></div><div id=grid role=grid hidden><div id=wrapper tabindex=0 aria-label="Candidate wrapper"><div><div role=row><div role=gridcell><span aria-hidden=true>★</span><span aria-label="350 Fifth Avenue"><span aria-hidden=true>350 Fifth Avenue</span></span><span aria-label="Manhattan"><span aria-hidden=true>Manhattan</span></span></div></div></div></div></div>';
 const get=id=>root.querySelector('#'+id), field=get('field'), grid=get('grid'), item=grid.firstChild;
 ${kind.startsWith('intermediate') ? "const shell=document.createElement('div');grid.replaceChild(shell,item);shell.append(item);" : ''}
 ${kind.startsWith('aggregate') && kind!=='aggregate-slot' ? "const all=document.createElement('div');all.tabIndex=0;all.setAttribute('aria-label','All suggestions');(root instanceof ShadowRoot?root.host:root).parentNode.insertBefore(all,root instanceof ShadowRoot?root.host:root);all.append(root instanceof ShadowRoot?root.host:root);all.onmousedown=()=>fetch('/picked?kind="+kind+"');" : ''}
 ${kind==='aggregate-slot' ? "const mount=document.createElement('div');root.parentNode.insertBefore(mount,root);mount.attachShadow({mode:'open'}).innerHTML='<div tabindex=0 aria-label=\"All suggestions\"><slot></slot></div>';mount.append(root);mount.shadowRoot.firstChild.onmousedown=()=>fetch('/picked?kind=aggregate-slot');" : ''}
 ${kind==='owned-container' ? "field.removeAttribute('aria-controls');const owner=document.createElement('div');owner.tabIndex=0;owner.setAttribute('role','combobox');owner.setAttribute('aria-controls','grid');owner.setAttribute('aria-label','Container owner');grid.replaceWith(owner);owner.append(grid);owner.onmousedown=()=>fetch('/picked?kind=owned-container');" : ''}
+${kind.startsWith('grid-aggregate') ? (kind==='grid-aggregate-slot' ? "const mount=document.createElement('div');root.parentNode.insertBefore(mount,root);mount.attachShadow({mode:'open'}).innerHTML='<div role=grid><div role=gridcell tabindex=0 aria-label=\"All suggestions\"><slot></slot></div></div>';mount.append(root);mount.shadowRoot.querySelector('[role=gridcell]').onmousedown=()=>fetch('/picked?kind=grid-aggregate-slot');" : "const outer=document.createElement('div');outer.setAttribute('role','grid');outer.innerHTML='<div role=gridcell tabindex=0 aria-label=\"All suggestions\"></div>';const host=root instanceof ShadowRoot?root.host:root;host.parentNode.insertBefore(outer,host);outer.firstChild.append(host);outer.firstChild.onmousedown=()=>fetch('/picked?kind="+kind+"');") : ''}
 ${kind==='duplicate-owner' ? "root.insertAdjacentHTML('beforeend','<input aria-label=Other aria-controls=grid>');" : ''}
 ${kind==='wrong-popup' ? "field.setAttribute('aria-controls','other');root.insertAdjacentHTML('beforeend','<div id=other role=grid></div>');" : ''}
 ${['multi-row','intermediate-multi-row'].includes(kind) ? "item.firstChild.append(item.querySelector('[role=row]').cloneNode(true));" : ''}
@@ -37,16 +38,17 @@ const origin=`http://127.0.0.1:${server.address().port}`
 let browser
 try {
  browser=await launchIsolated()
- for(const kind of ['duplicate-owner','wrong-popup','multi-row','multi-cell','disabled-cell','disabled-row','busy','rogue','hidden','late-disabled-cell','late-disabled-row','lost-role','rebound','nested','nested-busy','nested-wrong-owner','nested-shadow','late-inner','removed-root-child','standalone','standalone-checkbox','standalone-disabled','nested-checkbox','aggregate','aggregate-shadow','aggregate-slot','intermediate-multi-row','intermediate-rogue','owned-container']){
+ for(const kind of ['duplicate-owner','wrong-popup','multi-row','multi-cell','disabled-cell','disabled-row','busy','rogue','hidden','late-disabled-cell','late-disabled-row','lost-role','rebound','nested','nested-busy','nested-wrong-owner','nested-shadow','late-inner','removed-root-child','standalone','standalone-checkbox','standalone-disabled','nested-checkbox','aggregate','aggregate-shadow','aggregate-slot','intermediate-multi-row','intermediate-rogue','owned-container','grid-aggregate-light','grid-aggregate-shadow','grid-aggregate-slot']){
   const {tabId}=await browser.call('tabs',{action:'new',url:`${origin}/?kind=${kind}`})
   let p
   for(let i=0;i<30;i++){p=await browser.call('s1',{tabId,action:'agent_observe'});if(p.elements.some(e=>e.name==='Address'))break;await new Promise(r=>setTimeout(r,50))}
   const field=p.elements.find(e=>e.name==='Address');assert.ok(field)
   await browser.call('s1',{tabId,action:'agent_execute',op:'type',ref:field.ref,guard:field.guard,documentId:p.documentId,url:p.url,text:'350 Fifth Avenue Manhattan'})
   let after=await browser.call('s1',{tabId,action:'agent_observe'})
-  let target=after.elements.find(e=>kind==='owned-container'?e.name==='Container owner':kind.startsWith('standalone')?e.name==='Calendar day':kind.startsWith('aggregate')?e.name==='All suggestions':kind.startsWith('nested')?e.name==='Nested action':kind.endsWith('rogue')?e.name==='Rogue':e.candidate||e.name==='Candidate wrapper');assert.ok(target,kind)
+  let target=after.elements.find(e=>kind==='owned-container'?e.name==='Container owner':kind.startsWith('standalone')?e.name==='Calendar day':kind.includes('aggregate')?e.name==='All suggestions':kind.startsWith('nested')?e.name==='Nested action':kind.endsWith('rogue')?e.name==='Rogue':e.candidate||e.name==='Candidate wrapper');assert.ok(target,kind)
   const execute=t=>browser.call('s1',{tabId,action:'agent_execute',op:'click',ref:t.ref,guard:t.guard,documentId:after.documentId,url:after.url})
   let stale
+  if(kind.startsWith('grid-aggregate')){const previous=p.elements.find(e=>e.name==='All suggestions');assert.ok(previous,kind);stale=await execute(previous);assert.equal(stale.execution,'not_sent',kind+' pre-expansion guard')}
   if(['hidden','late-disabled-cell','late-disabled-row','lost-role','rebound','late-inner','removed-root-child'].includes(kind)){
    const fixturePage=browser.context.pages().find(p=>p.url()===`${origin}/?kind=${kind}`);assert.ok(fixturePage)
    await fixturePage.evaluate(kind=>{

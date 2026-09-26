@@ -64,3 +64,5 @@
 - 请求保留 modalBlocked、阻断弹窗ref/名称、基础资格排除计数和具体候选拒绝原因。没有可绑定字段可能是被过滤，不能自动解释为字段在下一页；普通命中测试与执行前守卫仍保留。
 
 UPS 的 label for 与真实 input id 不匹配是独立问题；本轮不靠站点ID截断或猜label解决。学校无显式开关关系时的低置信handoff保持。Google结果页仍需要独立关联的选中语义，URL/标题不会自动确认；Country旗帜、多选及虚拟列表等限制保持。协议7的隔离测试不能覆盖或替代协议6的正式站失败，也不保证本轮现场通过。
+
+协议7后续审查补充：聚合后代检查必须发生在所有独立grid例外之前，gridcell中含输入框不能为它包含的整个建议弹层提供点击豁免。多原生模态框按浏览器命中结果识别有效屏障，穿透shadow读实际命中，不按DOM次序或焦点猜层级；无法命中、结果矛盾或原生dialog本身DOM嵌套导致层级歧义时保持阻断，不宣称支持这类排序。上层原生modal之外的ARIA弹窗不再与它相互阻断，内部ARIA子模态仍有效。原生modal可以越过祖先inert，但自身及内部显式inert仍拒绝。执行前继续重验模态对象/集合和命中；关闭或新开窗口使旧guard失效。规范依据：[HTML modal与inert子树](https://html.spec.whatwg.org/multipage/interaction.html#modal-dialogs-and-inert-subtrees)。

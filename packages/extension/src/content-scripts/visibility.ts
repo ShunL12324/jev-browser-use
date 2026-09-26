@@ -12,6 +12,16 @@ export interface Bounds {
   height: number
 }
 
+// A native modal escapes inherited inertness. Its own explicit inert flag,
+// or an inert subtree inside it, still applies (HTML inert-subtree rules).
+export function isEffectivelyInert(el: Element): boolean {
+  for (let node: Element | null = el; node; node = node.assignedSlot ?? node.parentElement ?? (node.getRootNode() instanceof ShadowRoot ? (node.getRootNode() as ShadowRoot).host : null)) {
+    if (node.hasAttribute('inert')) return true
+    if (node instanceof HTMLDialogElement && node.matches(':modal')) return false
+  }
+  return false
+}
+
 export function getBounds(el: Element): Bounds | null {
   const r = el.getBoundingClientRect()
   if (r.width <= 0 || r.height <= 0) return null

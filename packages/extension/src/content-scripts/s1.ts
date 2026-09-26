@@ -4,18 +4,18 @@ import { documentId } from './document'
 import { buildSnapshot } from './snapshot'
 import { buildView } from './view'
 import { deriveName, deriveRole, isDisabled, getValue } from './interactive'
-import { getBounds, isVisible } from './visibility'
+import { getBounds, isVisible, isEffectivelyInert } from './visibility'
 import { findByRef, getOrAssignRef } from './refs'
 import { setNativeValue, dispatchInput, dispatchChange } from './events'
 import type { Assertion, Locator, S1Request, S1Result } from '../shared/s1'
-import { activeModals, composedContains } from './modal'
+import { activeModals, blockersFor, composedContains } from './modal'
 
 const textTypes = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number', 'date', 'datetime-local', 'month', 'week', 'time'])
 const visible = (el: Element) => { const b = getBounds(el); return !!b && isVisible(el, b) }
 const dialogs = activeModals
 export function facts(el: Element, active = dialogs()) {
   const dialog = active.find(d => composedContains(d, el))
-  const blockers = active.filter(d => !composedContains(d, el))
+  const blockers = blockersFor(el, active)
   const input = el instanceof HTMLInputElement, textarea = el instanceof HTMLTextAreaElement
   const name = deriveName(el, 10000)
   const context: string[] = []
@@ -50,7 +50,7 @@ export function facts(el: Element, active = dialogs()) {
   return {
     tag: el.tagName.toLowerCase(), role: deriveRole(el), name: name.slice(0, 200), nameTruncated: name.length > 200 || unresolvedLabel,
     disabled: isDisabled(el) || el.matches(':disabled'), readonly: input || textarea ? el.readOnly : false,
-    inert: !!el.closest('[inert]'), modalBlocked: blockers.length > 0,
+    inert: isEffectivelyInert(el), modalBlocked: blockers.length > 0,
     modalBlockers: blockers.map(d => ({ ref: getOrAssignRef(d).ref, name: deriveName(d, 200) })),
     dialog: dialog ? deriveName(dialog, 200) : null,
     expanded: ariaBoolean('aria-expanded'), selected: ariaBoolean('aria-selected'),

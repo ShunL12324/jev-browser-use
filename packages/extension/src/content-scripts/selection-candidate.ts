@@ -3,13 +3,14 @@
 import { deriveName } from './interactive'
 import { getOrAssignRef } from './refs'
 import { walkElements } from './dom-walker'
+import { isEffectivelyInert } from './visibility'
 const parent = (el: Element): Element | null => el.assignedSlot ?? el.parentElement ?? (el.getRootNode() instanceof ShadowRoot ? (el.getRootNode() as ShadowRoot).host : null)
 const visible = (el: Element) => {
   const r = el.getBoundingClientRect()
-  if (r.width <= 0 || r.height <= 0) return false
+  if (r.width <= 0 || r.height <= 0 || isEffectivelyInert(el)) return false
   for (let n: Element | null = el; n; n = parent(n)) {
     const s = getComputedStyle(n)
-    if (n.matches('[hidden],[aria-hidden="true"],[inert]') || s.display === 'none' || s.visibility !== 'visible' || Number(s.opacity) === 0) return false
+    if (n.matches('[hidden],[aria-hidden="true"]') || s.display === 'none' || s.visibility !== 'visible' || Number(s.opacity) === 0) return false
   }
   return true
 }
@@ -107,21 +108,21 @@ export function selectionMembership(el: Element, candidate = selectionCandidate(
     } else if (choicePopups.has(node)) popups.push(node)
   }
   const popup = popups[0]
+  // An outer card/search panel containing a choice popup is not a choice.
+  // Preserve actual owner controls so opening/closing their popup still works.
+  const descendants = descendantsOf(el).filter(child => child !== el && isChoicePopup(child) && visible(child))
+  for (const child of descendants) {
+    const root = child.getRootNode() as Document | ShadowRoot
+    const owners = child.id ? Array.from(root.querySelectorAll('[aria-controls]')).filter(n => (n.getAttribute('aria-controls') ?? '').split(/\s+/).includes(child.id)) : []
+    const uniqueId = child.id && Array.from(root.querySelectorAll('[id]')).filter(n => n.id === child.id).length === 1
+    if (descendants.length === 1 && uniqueId && owners.length === 1 && owners[0] === el && el.matches(choiceOwner)) continue
+    const membership: Membership = { popupRef: getOrAssignRef(child).ref, status: 'rejected', reason: 'aggregate_popup_container' }
+    members.set(el, membership)
+    return membership
+  }
   if (!popup) {
     const previous = members.get(el)
     if (previous) return { ...previous, status: 'rejected', reason: 'association_lost' }
-    // An outer card/search panel containing a choice popup is not a choice.
-    // Preserve actual owner controls so opening/closing their popup still works.
-    const descendants = descendantsOf(el).filter(child => child !== el && isChoicePopup(child) && visible(child))
-    for (const child of descendants) {
-      const root = child.getRootNode() as Document | ShadowRoot
-      const owners = child.id ? Array.from(root.querySelectorAll('[aria-controls]')).filter(n => (n.getAttribute('aria-controls') ?? '').split(/\s+/).includes(child.id)) : []
-      const uniqueId = child.id && Array.from(root.querySelectorAll('[id]')).filter(n => n.id === child.id).length === 1
-      if (descendants.length === 1 && uniqueId && owners.length === 1 && owners[0] === el && el.matches(choiceOwner)) continue
-      const membership: Membership = { popupRef: getOrAssignRef(child).ref, status: 'rejected', reason: 'aggregate_popup_container' }
-      members.set(el, membership)
-      return membership
-    }
     return null
   }
   const nativeAction = 'button,a[href],input,select,textarea,[role="button"],[role="checkbox"],[role="radio"],[role="switch"]'
