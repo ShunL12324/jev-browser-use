@@ -62,7 +62,7 @@ export function build(page, task, history, seen = []) {
   const inputs = {}
   for (const [id, input] of Object.entries(task.inputs)) {
     const applied = history.some(h => h.valueId === id && h.postcondition === 'met')
-    inputs[id] = { purpose: input.purpose, ...(input.fileId ? { fileId: input.fileId } : { value: input.secret ? '‹secret›' : input.value }), status: applied ? 'applied' : page.selections?.some(s => s.valueId === id) ? 'pending_selection' : failed.has(id) ? 'failed_to_apply' : 'pending' }
+    inputs[id] = { purpose: input.purpose, ...(input.fileId ? { fileId: input.fileId } : { value: input.secret ? '‹secret›' : input.value }), status: applied ? 'applied' : page.selections?.some(s => s.valueId === id && s.status !== 'invalidated') ? 'pending_selection' : failed.has(id) ? 'failed_to_apply' : 'pending' }
     if (applied || failed.has(id)) continue
     const candidates = bindCandidates(page, input, used)
     if (!Object.keys(candidates).length) continue
@@ -78,8 +78,8 @@ export function build(page, task, history, seen = []) {
   // Several goal-specified fields are then filled in one cycle.
   const claimed = new Set(Object.values(binds).flatMap(b => Object.keys(b.candidates)))
   const goalSpanList = goalOnly.length ? goalOnly : goalSpans(task.goal), fields = {}
-  const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && !e.unreachable && e.inView && !used.has(e.ref) && !page.selections?.some(s => s.ref === e.ref) && !claimed.has(e.ref) && !failed.has(`field:${page.documentId.slice(0, 8)}:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
-  for (const e of (page.selections?.length ? [] : fillable.slice(0, 12))) {
+  const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && !e.unreachable && e.inView && !used.has(e.ref) && !page.selections?.some(s => s.ref === e.ref && s.status !== 'invalidated') && !claimed.has(e.ref) && !failed.has(`field:${page.documentId.slice(0, 8)}:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
+  for (const e of (page.selections?.length ? fillable.filter(e => page.selections.some(s => s.ref === e.ref && s.status === 'invalidated')).slice(0, 12) : fillable.slice(0, 12))) {
     const choices = e.tag === 'select' ? Object.fromEntries(e.options.filter(o => !o.disabled && o.value !== e.value && o.value !== '').slice(0, 40).map((o, i) => [`o${i + 1}`, { label: o.label, value: o.value }]))
       : e.inputType === 'checkbox' || e.inputType === 'radio' ? { set: { label: 'checked', checked: true } } : Object.fromEntries(goalSpanList.filter(t => t !== e.value).map((t, i) => [`t${i + 1}`, { label: t, text: t }]))
     if (!Object.keys(choices).length) continue

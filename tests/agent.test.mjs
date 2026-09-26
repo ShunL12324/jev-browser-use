@@ -77,7 +77,7 @@ function fake(elements, { hooks = {}, url = origin + '/' } = {}) {
   const call = async (name, args) => {
     if (name === 'tabs') return { tabId: 7 }
     if (name === 'navigate') return {}
-    if (args.action === 'agent_observe') return page(structuredClone(s.elements), { documentId: s.documentId, url: s.url, marker: JSON.stringify(s.elements.map(e => [e.value, e.checked])) })
+    if (args.action === 'agent_observe') return page(structuredClone(s.elements), { documentId: s.documentId, url: s.url, selectionWitnesses: s.selectionWitnesses, marker: JSON.stringify(s.elements.map(e => [e.value, e.checked])) })
     if (args.action === 'agent_settle') return { ok: true, navigating: false }
     const target = s.elements.find(e => e.ref === args.ref)
     if (args.documentId !== s.documentId || target && args.guard !== target.guard) return { ok: true, execution: 'not_sent', code: 'STALE_REF' }
@@ -521,7 +521,7 @@ test('fresh owned suggestion is committed instead of only marking its query appl
   const opt = button('Example University', { role: 'option', listbox: { ref: 'owned' } })
   const f = fake([field], { hooks: {
     [field.ref]: s => { s.elements[0].expanded = true; s.elements[0].controls.targets[0].visible = true; s.elements.push(structuredClone(opt)) },
-    [opt.ref]: s => { s.elements[0].expanded = false; s.elements[0].controls.targets[0].visible = false; s.elements = s.elements.filter(e => e.ref !== opt.ref) }
+    [opt.ref]: s => { s.elements[0].expanded = false; s.elements[0].controls.targets[0].visible = false; s.elements = s.elements.filter(e => e.ref !== opt.ref); s.selectionWitnesses = [{ ref: field.ref, option: opt.name, source: 'labelled_field_display', committed: true }] }
   } })
   const { result, events } = await run(task({ inputs: { school: { value: 'Example University', purpose: 'school' } } }), f, answer())
   assert.equal(result.status, 'done')
@@ -552,4 +552,19 @@ test('an explicitly selected Enter remains a separate executable operation', asy
   })
   assert.deepEqual(f.s.executed.map(e => e.op), ['type', 'key'])
   assert.equal(result.status, 'done')
+})
+
+
+test('cascade reset followed by DONE and not_now bindings remains blocked', async () => {
+  const field = el('School', { role: 'combobox', expanded: false, controls: { status: 'known', targets: [{ ref: 'owned', visible: false }] } })
+  const opt = button('Example University', { role: 'option', listbox: { ref: 'owned' } }), reset = button('Reset')
+  const f = fake([field, reset], { hooks: {
+    [field.ref]: s => { s.elements[0].expanded = true; s.elements[0].controls.targets[0].visible = true; s.elements.push(structuredClone(opt)) },
+    [opt.ref]: s => { s.elements[0].expanded = false; s.elements[0].controls.targets[0].visible = false; s.elements = s.elements.filter(e => e.ref !== opt.ref); s.selectionWitnesses = [{ ref: field.ref, option: opt.name, source: 'labelled_field_display', committed: true }] },
+    [reset.ref]: s => { s.elements[0].value = ''; s.selectionWitnesses[0].committed = false }
+  } })
+  const ask = answer({ bind: () => f.s.executed.some(e => e.ref === reset.ref) ? 'not_now' : 0, op: () => f.s.executed.some(e => e.ref === reset.ref) ? ['DONE'] : ['CLICK', reset.ref] })
+  const { result } = await run(task({ inputs: { school: { value: 'Example University', purpose: 'school' } }, llm: 'none' }), f, ask)
+  assert.equal(result.status, 'blocked'); assert.equal(result.reason, 'selection_unconfirmed')
+  assert.ok(f.s.executed.some(e => e.ref === reset.ref))
 })

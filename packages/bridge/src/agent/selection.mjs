@@ -34,7 +34,7 @@ export class Selections {
       if (loading(field)) r.sawBusy = true
       if (!loading(field) && (r.sawBusy || signature(page, field) !== r.baseline)) r.fresh = true
     }
-    page.selections = [...this.records.values()].filter(r => r.doc === page.documentId && r.status !== 'committed' && r.status !== 'invalidated')
+    page.selections = [...this.records.values()].filter(r => r.doc === page.documentId && r.status !== 'committed')
       .map(r => ({ ref: r.ref, name: r.name, query: r.query, valueId: r.valueId, status: r.status,
         ready: r.status === 'query' && r.fresh && !loading(page.elements.find(e => e.ref === r.ref)),
         optionRefs: ownedOptions(page, page.elements.find(e => e.ref === r.ref)).filter(e => !e.disabled && !e.modalBlocked).map(e => e.ref) }))
@@ -47,18 +47,18 @@ export class Selections {
     if (owners.length !== 1) return null
     const field = owners[0], r = this.records.get(key(page, field.ref))
     if (!r || r.status !== 'query' || !r.fresh || loading(field)) return null
-    return { r, option: { ref: option.ref, name: option.name }, wasOpen: field.expanded === true || field.controls.targets.some(t => t.visible) }
+    return { r, valueBefore: value(field), fieldName: field.name, lists: field.controls.targets.map(t => t.ref), option: { ref: option.ref, name: option.name }, wasOpen: field.expanded === true || field.controls.targets.some(t => t.visible) }
   }
   finishPick(pick, page, history) {
     if (!pick || pick.r.doc !== page.documentId) return false
-    const { r, option, wasOpen } = pick
+    const { r, option, wasOpen, valueBefore, fieldName, lists } = pick
     if (r.status !== 'confirming') { r.pick = pick; r.status = 'confirming'; r.started = performance.now() }
     const field = page.elements.find(e => e.ref === r.ref)
     // Highlight/aria-selected alone can be keyboard focus. Require the popup
     // to close after the click AND its owner to display the chosen value.
-    const closed = field && (field.expanded === false || field.controls?.status === 'known' && field.controls.targets.length && field.controls.targets.every(t => !t.visible))
+    const closed = field && field.name === fieldName && field.expanded !== true && field.controls?.status === 'known' && field.controls.targets.length === lists.length && field.controls.targets.every(t => !t.visible && lists.includes(t.ref))
     const witness = page.selectionWitnesses?.some(w => w.ref === r.ref && w.option === option.name && w.source === 'labelled_field_display' && w.committed)
-    if (!wasOpen || !witness && (!closed || field.invalid || !norm(value(field)) || norm(value(field)) !== norm(option.name))) return false
+    if (!wasOpen || !witness && (!closed || field.invalid || value(field) === valueBefore || !norm(value(field)) || norm(value(field)) !== norm(option.name))) return false
     r.status = 'committed'; r.committedValue = value(field); r.witness = !!witness
     history.push({ doc: r.doc, op: 'selection', ref: r.ref, name: r.name, valueId: r.valueId, postcondition: 'met', selectedOption: option.name })
     return true

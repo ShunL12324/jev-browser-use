@@ -77,7 +77,7 @@ export function bindCandidates(page, input, used) {
   // Secrets are origin-bound for the acting document, not just at start.
   if (input.secret) { let origin; try { origin = new URL(page.url).origin } catch { return out } if (!input.origins?.includes(origin)) return out }
   for (const e of page.elements.filter(e => usable(e) && selectionAllows(page, e))) {
-    if (used.has(e.ref) || page.selections?.some(s => s.ref === e.ref) || page.selections?.length && e.role !== 'option') continue
+    if (used.has(e.ref) || page.selections?.some(s => s.ref === e.ref && s.status !== 'invalidated') || page.selections?.length && e.role !== 'option' && !page.selections.some(s => s.ref === e.ref && s.status === 'invalidated')) continue
     if (input.fileId) { if (e.inputType === 'file' && !e.files) out[e.ref] = { ref: e.ref, op: 'upload' }; continue }
     const v = String(input.value)
     if (e.inputType === 'checkbox') { if (['true', 'false'].includes(v) && e.checked !== (v === 'true')) out[e.ref] = { ref: e.ref, op: 'check', checked: v === 'true' }; continue }

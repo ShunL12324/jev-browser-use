@@ -44,8 +44,9 @@ test('a highlighted option or a disappearing list alone is not selection evidenc
   assert.equal(history.length, 0)
 })
 test('click + closed popup + owner showing selected value confirms; cascade reset invalidates', () => {
-  const { s, after, history } = query(), pick = s.beforePick(after, after.elements[1])
-  after.elements[0].expanded = false; after.elements[0].controls.targets[0].visible = false
+  const { s, after, history } = query(); after.elements[0].value = 'Example'
+  const pick = s.beforePick(after, after.elements[1])
+  after.elements[0].value = 'Example University'; after.elements[0].expanded = false; after.elements[0].controls.targets[0].visible = false
   assert.equal(s.finishPick(pick, after, history), true); s.observe(after, history)
   assert.equal(build(after, task, history).payload.state.inputs.school.status, 'applied')
   after.elements[0].value = ''; s.observe(after, history)
@@ -65,11 +66,12 @@ test('ambiguous or unresolved ownership never enables automatic selection', () =
 })
 
 test('asynchronous selection acknowledgement is checked on later observations', () => {
-  const { s, after, history } = query(), pick = s.beforePick(after, after.elements[1])
+  const { s, after, history } = query(); after.elements[0].value = 'Example'
+  const pick = s.beforePick(after, after.elements[1])
   assert.equal(s.finishPick(pick, after, history), false); s.observe(after, history)
   assert.equal(after.selections[0].status, 'confirming')
   assert.equal(selectionAllows(after, after.elements[1]), false)
-  after.elements[0].expanded = false; after.elements[0].controls.targets[0].visible = false
+  after.elements[0].value = 'Example University'; after.elements[0].expanded = false; after.elements[0].controls.targets[0].visible = false
   s.observe(after, history)
   assert.equal(after.selections.length, 0)
   assert.equal(history.filter(h => h.postcondition === 'met').length, 1)
@@ -77,7 +79,7 @@ test('asynchronous selection acknowledgement is checked on later observations', 
 })
 
 
-test('a labelled field display can confirm a replaced owner, then reset invalidates it', () => {
+test('a labelled field display can confirm an owner omitted from the interactive snapshot, then reset invalidates it', () => {
   const { s, after, history } = query(), pick = s.beforePick(after, after.elements[1])
   after.elements = []
   after.selectionWitnesses = [{ ref: 'field', option: 'Example University', source: 'labelled_field_display', committed: true }]
@@ -97,4 +99,23 @@ test('display evidence from another owner, option or unknown source cannot confi
     assert.equal(s.finishPick(pick, after, history), false)
     assert.equal(history.length, 0)
   }
+})
+
+
+test('closing a list over unchanged exact query is not a committed selection', () => {
+  const { s, after, history } = query(), pick = s.beforePick(after, after.elements[1])
+  after.elements[0].expanded = false; after.elements[0].controls.targets[0].visible = false
+  assert.equal(s.finishPick(pick, after, history), false)
+  assert.equal(history.length, 0)
+})
+test('reset preserves a pending obligation and offers its field for rebinding', () => {
+  const { s, after, history } = query(); after.elements[0].value = 'Example'
+  const pick = s.beforePick(after, after.elements[1])
+  after.elements[0].value = 'Example University'; after.elements[0].expanded = false; after.elements[0].controls.targets[0].visible = false
+  assert.equal(s.finishPick(pick, after, history), true)
+  after.elements[0].value = ''; s.observe(after, history)
+  assert.equal(s.pending(after)[0].status, 'invalidated')
+  const b = build(after, task, history)
+  assert.equal(b.payload.state.inputs.school.status, 'pending')
+  assert.ok(Object.values(b.binds).some(x => x.candidates.field))
 })
