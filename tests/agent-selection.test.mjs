@@ -75,3 +75,26 @@ test('asynchronous selection acknowledgement is checked on later observations', 
   assert.equal(history.filter(h => h.postcondition === 'met').length, 1)
   s.observe(after, history); assert.equal(history.length, 1)
 })
+
+
+test('a labelled field display can confirm a replaced owner, then reset invalidates it', () => {
+  const { s, after, history } = query(), pick = s.beforePick(after, after.elements[1])
+  after.elements = []
+  after.selectionWitnesses = [{ ref: 'field', option: 'Example University', source: 'labelled_field_display', committed: true }]
+  assert.equal(s.finishPick(pick, after, history), true)
+  s.observe(after, history)
+  assert.equal(after.selections.length, 0)
+  assert.equal(history.at(-1).postcondition, 'met')
+  after.selectionWitnesses[0].committed = false
+  s.observe(after, history)
+  assert.equal(history.at(-1).postcondition, 'invalidated')
+})
+test('display evidence from another owner, option or unknown source cannot confirm', () => {
+  for (const extra of [{ ref: 'other' }, { option: 'Other University' }, { source: 'page_text' }, { committed: false }]) {
+    const { s, after, history } = query(), pick = s.beforePick(after, after.elements[1])
+    after.elements = []
+    after.selectionWitnesses = [{ ref: 'field', option: 'Example University', source: 'labelled_field_display', committed: true, ...extra }]
+    assert.equal(s.finishPick(pick, after, history), false)
+    assert.equal(history.length, 0)
+  }
+})

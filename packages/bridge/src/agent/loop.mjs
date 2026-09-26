@@ -7,7 +7,7 @@ import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
 import { bindCandidates, fits, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
-export const AGENT_PROTOCOL = 4
+export const AGENT_PROTOCOL = 5
 export const OBSERVE_TIMEOUT_MS = Number(process.env.JEV_OBSERVE_TIMEOUT_MS ?? 5000)
 const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
 // Enter in a form submits it: judge it as its submit control (or an unnamed

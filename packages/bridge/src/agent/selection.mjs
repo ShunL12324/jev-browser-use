@@ -21,8 +21,12 @@ export class Selections {
       if (r.doc !== page.documentId) continue
       const field = page.elements.find(e => e.ref === r.ref)
       if (r.status === 'confirming') this.finishPick(r.pick, page, history)
-      if (!field) continue // disappearance is not proof of a committed value
-      if (r.status === 'committed' && (value(field) !== r.committedValue || field.invalid)) {
+      if (r.status === 'committed' && r.witness && !page.selectionWitnesses?.some(w => w.ref === r.ref && w.option === r.pick.option.name && w.source === 'labelled_field_display' && w.committed)) {
+        r.status = 'invalidated'
+        for (const h of history) if (h.doc === r.doc && (h.ref === r.ref || r.valueId && h.valueId === r.valueId)) h.postcondition = 'invalidated'
+      }
+      if (!field) continue // disappearance alone is not proof of commitment
+      if (r.status === 'committed' && !r.witness && (value(field) !== r.committedValue || field.invalid)) {
         r.status = 'invalidated'
         for (const h of history) if (h.doc === r.doc && (h.ref === r.ref || r.valueId && h.valueId === r.valueId)) h.postcondition = 'invalidated'
       }
@@ -53,8 +57,9 @@ export class Selections {
     // Highlight/aria-selected alone can be keyboard focus. Require the popup
     // to close after the click AND its owner to display the chosen value.
     const closed = field && (field.expanded === false || field.controls?.status === 'known' && field.controls.targets.length && field.controls.targets.every(t => !t.visible))
-    if (!wasOpen || !closed || field.invalid || !norm(value(field)) || norm(value(field)) !== norm(option.name)) return false
-    r.status = 'committed'; r.committedValue = value(field)
+    const witness = page.selectionWitnesses?.some(w => w.ref === r.ref && w.option === option.name && w.source === 'labelled_field_display' && w.committed)
+    if (!wasOpen || !witness && (!closed || field.invalid || !norm(value(field)) || norm(value(field)) !== norm(option.name))) return false
+    r.status = 'committed'; r.committedValue = value(field); r.witness = !!witness
     history.push({ doc: r.doc, op: 'selection', ref: r.ref, name: r.name, valueId: r.valueId, postcondition: 'met', selectedOption: option.name })
     return true
   }

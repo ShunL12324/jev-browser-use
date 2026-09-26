@@ -2,6 +2,7 @@
 // (shadow roots included), guarded execution and a short event-driven settle.
 // The bridge decides; this file only reads facts and performs one operation.
 import { buildSnapshot } from './snapshot'
+import { watchSelection, selectionWitnesses } from './selection-witness'
 import { facts } from './s1'
 import { documentId } from './document'
 import { findByRef, getOrAssignRef } from './refs'
@@ -94,7 +95,7 @@ function observe(limit: number) {
   elements.sort((a, b) => a.top - b.top || a.left - b.left)
   const marker = hash(JSON.stringify([location.href, scrollY, elements.map(e => [e.ref, e.role, e.name, e.value, e.checked, e.expanded, e.disabled])]))
   return { ok: true, agentProtocol: AGENT_PROTOCOL, build: BUILD_ID, documentId, url: location.href, title: document.title, readyState: document.readyState, text: visibleText(),
-    dialogs: recentDialogs(),
+    dialogs: recentDialogs(), selectionWitnesses: selectionWitnesses(),
     scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - picked.length, marker }
 }
 const reject = (code: string) => ({ ok: true as const, execution: 'not_sent', code })
@@ -168,7 +169,7 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
   nav?.addEventListener('navigate', onNavigate)
   try {
     switch (op) {
-      case 'click': press(el!); break
+      case 'click': watchSelection(el!); press(el!); break
       case 'type':
         el!.focus()
         if (el!.isContentEditable) { document.execCommand('selectAll'); document.execCommand('insertText', false, q.text as string) }
