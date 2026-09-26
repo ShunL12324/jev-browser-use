@@ -70,6 +70,16 @@ test('invalid answers are isolated per question', () => {
   const bad = invalidAnswers(q, answers)
   assert.ok(bad.has('target_CLICK') && bad.has('bind_1') && !bad.has('operation'))
 })
+test('blocked fields explain their modal and base eligibility without offering a bind', () => {
+  const address = el('Address', { modalBlocked: true, modalBlockers: [{ ref: 'dialog', name: 'Service alert' }] })
+  const aggregate = button('All suggestions', { role: 'generic', popupMember: { status: 'rejected', reason: 'aggregate_popup_container' } })
+  const b = build(page([address, aggregate]), task({ inputs: { address: { value: 'Public landmark', purpose: 'address' } } }), [])
+  assert.deepEqual(b.binds, {})
+  assert.deepEqual(b.targets.CLICK, {})
+  assert.deepEqual(b.payload.state.baseTargetExclusions, { modal_blocked: 1, aggregate_popup_container: 1 })
+  assert.deepEqual(b.payload.state.elements[0].modalBlockers, address.modalBlockers)
+  assert.equal(b.payload.state.elements[0].modalBlocked, true)
+})
 
 // Fake page for loop tests: execute mutates element facts; hooks follow.
 function fake(elements, { hooks = {}, url = origin + '/' } = {}) {

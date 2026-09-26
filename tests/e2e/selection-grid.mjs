@@ -9,21 +9,25 @@ import { runTask } from '../../packages/bridge/dist/agent/loop.mjs'
 import { prepareTask } from '../../packages/bridge/dist/agent/task.mjs'
 const counts = new Map(), records = []
 const fixture = kind => `<!doctype html><style>input,[tabindex]{padding:12px;margin:8px}[role=gridcell]{padding:12px}</style><div id=host></div><script>
-const root=${kind==='shadow' ? "document.querySelector('#host').attachShadow({mode:'open'})" : "document.querySelector('#host')"};
+const root=${['shadow','intermediate-shadow','aggregate-shadow'].includes(kind) ? "document.querySelector('#host').attachShadow({mode:'open'})" : "document.querySelector('#host')"};
 root.innerHTML='<div><label for=field>Address</label><input id=field role=combobox aria-controls=grid aria-haspopup=grid aria-expanded=false><span id=display></span></div><div id=grid role=grid hidden><div id=wrapper tabindex=0 aria-label="Candidate wrapper"><div><div role=row><div role=gridcell><span aria-hidden=true>★</span><span aria-label="350 Fifth Avenue"><span aria-hidden=true>350 Fifth Avenue</span></span><span aria-label="Manhattan"><span aria-hidden=true>Manhattan</span></span></div></div></div></div></div>';
 const get=id=>root.querySelector('#'+id), field=get('field'), grid=get('grid'), item=grid.firstChild;
+${kind.startsWith('intermediate') ? "const shell=document.createElement('div');grid.replaceChild(shell,item);shell.append(item);" : ''}
+${kind.startsWith('aggregate') && kind!=='aggregate-slot' ? "const all=document.createElement('div');all.tabIndex=0;all.setAttribute('aria-label','All suggestions');(root instanceof ShadowRoot?root.host:root).parentNode.insertBefore(all,root instanceof ShadowRoot?root.host:root);all.append(root instanceof ShadowRoot?root.host:root);all.onmousedown=()=>fetch('/picked?kind="+kind+"');" : ''}
+${kind==='aggregate-slot' ? "const mount=document.createElement('div');root.parentNode.insertBefore(mount,root);mount.attachShadow({mode:'open'}).innerHTML='<div tabindex=0 aria-label=\"All suggestions\"><slot></slot></div>';mount.append(root);mount.shadowRoot.firstChild.onmousedown=()=>fetch('/picked?kind=aggregate-slot');" : ''}
+${kind==='owned-container' ? "field.removeAttribute('aria-controls');const owner=document.createElement('div');owner.tabIndex=0;owner.setAttribute('role','combobox');owner.setAttribute('aria-controls','grid');owner.setAttribute('aria-label','Container owner');grid.replaceWith(owner);owner.append(grid);owner.onmousedown=()=>fetch('/picked?kind=owned-container');" : ''}
 ${kind==='duplicate-owner' ? "root.insertAdjacentHTML('beforeend','<input aria-label=Other aria-controls=grid>');" : ''}
 ${kind==='wrong-popup' ? "field.setAttribute('aria-controls','other');root.insertAdjacentHTML('beforeend','<div id=other role=grid></div>');" : ''}
-${kind==='multi-row' ? "item.firstChild.append(item.querySelector('[role=row]').cloneNode(true));" : ''}
+${['multi-row','intermediate-multi-row'].includes(kind) ? "item.firstChild.append(item.querySelector('[role=row]').cloneNode(true));" : ''}
 ${kind==='multi-cell' ? "item.querySelector('[role=row]').append(item.querySelector('[role=gridcell]').cloneNode(true));" : ''}
 ${kind==='disabled-cell' ? "item.querySelector('[role=gridcell]').setAttribute('aria-disabled','true');" : ''}
 ${kind==='disabled-row' ? "item.querySelector('[role=row]').setAttribute('aria-disabled','true');" : ''}
 ${kind==='busy' ? "field.setAttribute('aria-busy','true');" : ''}
-${kind==='rogue' ? "item.querySelector('[role=gridcell]').insertAdjacentHTML('beforeend','<span tabindex=0 aria-label=Rogue>Rogue</span>');" : ''}
-${['nested','nested-busy','nested-wrong-owner','nested-shadow'].includes(kind) ? `const nest=document.createElement('div');item.append(nest);const nestedRoot=${kind==='nested-shadow'?"nest.attachShadow({mode:'open'})":"nest"};nestedRoot.innerHTML='<div role=grid><div role=row><div role=gridcell><button type=button>Nested action</button></div></div></div>';` : ''}
+${['rogue','intermediate-rogue'].includes(kind) ? "item.querySelector('[role=gridcell]').insertAdjacentHTML('beforeend','<span tabindex=0 aria-label=Rogue>Rogue</span>');" : ''}
+${['nested','nested-busy','nested-wrong-owner','nested-shadow','nested-checkbox'].includes(kind) ? `const nest=document.createElement('div');item.append(nest);const nestedRoot=${kind==='nested-shadow'?"nest.attachShadow({mode:'open'})":"nest"};nestedRoot.innerHTML='<div role=grid><div role=row><div role=gridcell>${kind==='nested-checkbox'?'<span role=checkbox tabindex=0>Nested action</span>':'<button type=button>Nested action</button>'}</div></div></div>';` : ''}
 ${kind==='nested-busy' ? "field.setAttribute('aria-busy','true');" : ''}
 ${kind==='nested-wrong-owner' ? "field.setAttribute('aria-controls','missing');" : ''}
-${kind==='standalone' ? "field.removeAttribute('aria-controls');grid.innerHTML='<div role=row><div role=gridcell><button type=button>Calendar day</button></div></div>';grid.querySelector('button').onmousedown=()=>fetch('/picked?kind=standalone');" : ''}
+${kind.startsWith('standalone') ? "field.removeAttribute('aria-controls');grid.innerHTML='<div role=row><div role=gridcell><button type=button>Calendar day</button></div></div>';if ('"+kind+"'!=='standalone')grid.innerHTML='<table role=grid><tbody><tr><td role=gridcell><span role=checkbox aria-checked=false tabindex=-1 aria-label=\"Calendar day\">20</span></td></tr></tbody></table>';if ('"+kind+"'!=='standalone')grid.removeAttribute('role');if ('"+kind+"'==='standalone-disabled')grid.querySelector('table').setAttribute('aria-disabled','true');grid.querySelector('button,[role=checkbox]').onmousedown=e=>{e.currentTarget.setAttribute('aria-checked','true');fetch('/picked?kind="+kind+"')};" : ''}
 field.oninput=()=>{grid.hidden=false;field.setAttribute('aria-expanded','true')};
 item.onmousedown=e=>{e.preventDefault();fetch('/picked?kind=${kind}');
 ${kind==='cross-document' ? "location.href='/result';" : `setTimeout(()=>{history.pushState({},'', '/selected');grid.hidden=true;field.setAttribute('aria-expanded','false');${kind==='url-only'?'':"get('display').textContent='350 Fifth Avenue Manhattan';"}},600);`}
@@ -33,14 +37,14 @@ const origin=`http://127.0.0.1:${server.address().port}`
 let browser
 try {
  browser=await launchIsolated()
- for(const kind of ['duplicate-owner','wrong-popup','multi-row','multi-cell','disabled-cell','disabled-row','busy','rogue','hidden','late-disabled-cell','late-disabled-row','lost-role','rebound','nested','nested-busy','nested-wrong-owner','nested-shadow','late-inner','removed-root-child','standalone']){
+ for(const kind of ['duplicate-owner','wrong-popup','multi-row','multi-cell','disabled-cell','disabled-row','busy','rogue','hidden','late-disabled-cell','late-disabled-row','lost-role','rebound','nested','nested-busy','nested-wrong-owner','nested-shadow','late-inner','removed-root-child','standalone','standalone-checkbox','standalone-disabled','nested-checkbox','aggregate','aggregate-shadow','aggregate-slot','intermediate-multi-row','intermediate-rogue','owned-container']){
   const {tabId}=await browser.call('tabs',{action:'new',url:`${origin}/?kind=${kind}`})
   let p
   for(let i=0;i<30;i++){p=await browser.call('s1',{tabId,action:'agent_observe'});if(p.elements.some(e=>e.name==='Address'))break;await new Promise(r=>setTimeout(r,50))}
   const field=p.elements.find(e=>e.name==='Address');assert.ok(field)
   await browser.call('s1',{tabId,action:'agent_execute',op:'type',ref:field.ref,guard:field.guard,documentId:p.documentId,url:p.url,text:'350 Fifth Avenue Manhattan'})
   let after=await browser.call('s1',{tabId,action:'agent_observe'})
-  let target=after.elements.find(e=>kind==='standalone'?e.name==='Calendar day':kind.startsWith('nested')?e.name==='Nested action':kind==='rogue'?e.name==='Rogue':e.candidate||e.name==='Candidate wrapper');assert.ok(target,kind)
+  let target=after.elements.find(e=>kind==='owned-container'?e.name==='Container owner':kind.startsWith('standalone')?e.name==='Calendar day':kind.startsWith('aggregate')?e.name==='All suggestions':kind.startsWith('nested')?e.name==='Nested action':kind.endsWith('rogue')?e.name==='Rogue':e.candidate||e.name==='Candidate wrapper');assert.ok(target,kind)
   const execute=t=>browser.call('s1',{tabId,action:'agent_execute',op:'click',ref:t.ref,guard:t.guard,documentId:after.documentId,url:after.url})
   let stale
   if(['hidden','late-disabled-cell','late-disabled-row','lost-role','rebound','late-inner','removed-root-child'].includes(kind)){
@@ -61,10 +65,11 @@ try {
    after=await browser.call('s1',{tabId,action:'agent_observe'});target=after.elements.find(e=>kind==='late-inner'?e.name==='Nested action':kind==='removed-root-child'?e.name==='New descendant':e.ref===target.ref)
   }
   let rejected
-  if(kind==='standalone'){
+  if(['standalone','standalone-checkbox','owned-container'].includes(kind)){
    assert.equal(target.popupMember,null);assert.equal(target.ref in targets(after).CLICK,true)
    const result=await execute(target);assert.equal(result.execution,'returned')
    await new Promise(r=>setTimeout(r,50));assert.equal(counts.get(kind),1)
+   if(kind==='standalone-checkbox'){const checked=await browser.call('s1',{tabId,action:'agent_observe'});assert.equal(checked.elements.find(e=>e.ref===target.ref).checked,true)}
    records.push({kind,passed:true,clicks:1});await browser.call('tabs',{action:'close',tabId});continue
   }
   if(target){
@@ -75,7 +80,7 @@ try {
   assert.equal(counts.get(kind)??0,0,kind+' zero side effects')
   records.push({kind,passed:true,stale,rejected,clicks:counts.get(kind)??0});await browser.call('tabs',{action:'close',tabId})
  }
- for(const kind of ['light','shadow','url-only','cross-document']){
+ for(const kind of ['light','shadow','intermediate','intermediate-shadow','url-only','cross-document']){
   const events=[]
   const ask=async({state,questions})=>{
    const pick=(q,id)=>({type:'choice',choice:id,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===id?1:0]))}), answers={}
@@ -89,8 +94,8 @@ try {
   const result=await runTask(task,{call:browser.call,ask,handoff:async()=>({}),emit:e=>events.push(e)})
   records.push({kind,result,events,clicks:counts.get(kind)??0})
   assert.equal(counts.get(kind),1,kind+' must click exactly once')
-  assert.equal(result.status,['light','shadow'].includes(kind)?'done':'blocked',JSON.stringify({kind,result}))
-  if(!['light','shadow'].includes(kind))assert.equal(result.reason,'selection_unconfirmed')
+  assert.equal(result.status,['light','shadow','intermediate','intermediate-shadow'].includes(kind)?'done':'blocked',JSON.stringify({kind,result}))
+  if(!['light','shadow','intermediate','intermediate-shadow'].includes(kind))assert.equal(result.reason,'selection_unconfirmed')
  }
  console.log(JSON.stringify({passed:true,cases:records.length,liveJev:false}))
 }finally{

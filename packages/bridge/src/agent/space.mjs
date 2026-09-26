@@ -5,6 +5,10 @@ import { selectionAllows, isCandidate } from './selection.mjs'
 
 export const norm = s => String(s ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
 const usable = e => !e.disabled && !e.modalBlocked && !e.unreachable
+// Explain base eligibility before operation-specific and binding rules. These
+// are exclusions, not a claim that the remaining elements fit a supplied value.
+export const targetExclusions = (page, e) => [e.disabled && 'disabled', e.modalBlocked && 'modal_blocked', e.unreachable && 'unreachable',
+  !selectionAllows(page, e) && (e.popupMember?.reason || 'selection_not_ready_or_owned')].filter(Boolean)
 const MAX_TARGETS = 254
 
 // Operation id → Jev-facing description. Only operations with targets (or
