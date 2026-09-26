@@ -9,7 +9,7 @@ import { findByRef, getOrAssignRef } from './refs'
 import { shadowOf } from './shadow'
 import { actSetFiles } from './actions'
 import { setNativeValue, dispatchInput, dispatchChange } from './events'
-import { setConfirmPolicy, takeDenied, recentDialogs } from './guard'
+import { setConfirmPolicy, takeDenied, recentDialogs, confirmGuardDiagnostic } from './guard'
 import { AGENT_PROTOCOL, BUILD_ID } from '../shared/agent-protocol'
 
 type Req = { action: string; [k: string]: unknown }
@@ -133,7 +133,7 @@ async function execute(q: Req) {
   // Native confirm() during agent actions is denied and reported (main.ts);
   // without the private guard channel, committing actions fail closed.
   const committing = ['click', 'key'].includes(q.op as string)
-  if (committing && !await setConfirmPolicy(q.acceptConfirm ? 'accept-once' : 'deny')) return reject('CONFIRM_GUARD_UNAVAILABLE')
+  if (committing && !await setConfirmPolicy(q.acceptConfirm ? 'accept-once' : 'deny')) return { ...reject('CONFIRM_GUARD_UNAVAILABLE'), guardDiagnostic: { documentId, ...confirmGuardDiagnostic() } }
   const result = run(q)
   if (committing) { const denied = await takeDenied(); await setConfirmPolicy('deny'); if (denied !== undefined && result.execution === 'returned') return { ...result, confirmDenied: denied } }
   return result
