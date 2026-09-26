@@ -13,15 +13,17 @@ const fixture = variant => `<!doctype html><meta charset="utf-8"><style>input,bu
 <div id="host"></div><script>
 const root = ${variant === 'shadow' ? "document.querySelector('#host').attachShadow({mode:'open'})" : "document.querySelector('#host')"};
 root.innerHTML = '<label>Country <select id="country"><option value="">Choose</option><option value="CA">Canada</option><option value="US">United States</option></select></label><label>School <input id="school" aria-label="School" role="combobox" aria-autocomplete="list" aria-controls="schools" aria-expanded="false"></label><label>Address <input id="address" aria-label="Address" role="combobox" aria-autocomplete="list" aria-controls="addresses" aria-expanded="false"></label><div id="unrelated" role="listbox" aria-label="Unrelated suggestions"><button role="option" type="button">Example University</button></div><section><ul id="schools" role="listbox" aria-label="Schools" hidden></ul><ul id="addresses" role="listbox" aria-label="Addresses" hidden></ul></section><label>Appointment date <input id="date" readonly></label><button type="button" id="open">Choose appointment date</button><div id="calendar" role="dialog" aria-label="Appointment calendar" hidden><button type="button" id="next">Next month</button><table role="grid" aria-label="October 2026"><tbody><tr><td><button type="button" id="day" aria-label="October 15, 2026">15</button></td><td><button type="button" disabled aria-label="October 16, 2026">16</button></td></tr></tbody></table><button type="button" id="apply">Apply</button></div><p id="status"></p>';
-${variant === 'custom' ? `root.querySelector('#country').outerHTML='<button type="button" id="country" role="combobox" aria-label="Country" aria-controls="countries" aria-expanded="false">Choose country</button><ul id="countries" role="listbox" hidden><li role="option">Canada</li><li role="option">United States</li></ul>';root.append(root.querySelector('#countries'));` : ''}
+${variant.startsWith('custom') ? `root.querySelector('#country').outerHTML='<button type="button" id="country" role="combobox" aria-label="Country" aria-controls="countries" aria-expanded="false">Choose country</button><ul id="countries" role="listbox" hidden><li role="option">Canada</li><li role="option">United States</li></ul>';root.append(root.querySelector('#countries'));` : ''}
+${variant === 'custom-reset' ? `root.insertAdjacentHTML('beforeend','<button type=\"button\" id=\"reset-country\">Reset country</button>');` : ''}
 const get = id => root.querySelector('#'+id), report = (kind,value) => fetch('/record?variant=${variant}',{method:'POST',body:JSON.stringify({kind,value})});
 get('country').onchange = () => {${variant.startsWith('chip') ? "get('selected-school').textContent='';get('school').style.opacity='1';" : ''}get('school').value='';get('address').value='';for(const n of root.querySelectorAll('[data-selection-display]'))n.textContent=''; report('country', get('country').value)};
-${variant === 'custom' ? `get('country').onclick=()=>{get('country').setAttribute('aria-expanded','true');get('countries').hidden=false};for(const o of get('countries').children)o.onmousedown=e=>{e.preventDefault();get('country').textContent=o.textContent;get('country').setAttribute('aria-expanded','false');get('countries').hidden=true;get('school').value='';get('address').value='';for(const n of root.querySelectorAll('[data-selection-display]'))n.textContent='';report('country',o.textContent==='Canada'?'CA':'US')};` : ''}
+${variant.startsWith('custom') ? `get('country').onclick=()=>{get('country').setAttribute('aria-expanded','true');get('countries').hidden=false};for(const o of get('countries').children)o.onmousedown=e=>{e.preventDefault();get('country').textContent=o.textContent;get('country').setAttribute('aria-expanded','false');get('countries').hidden=true;get('school').value='';get('address').value='';for(const n of root.querySelectorAll('[data-selection-display]'))n.textContent='';report('country',o.textContent==='Canada'?'CA':'US')};` : ''}
 ${variant.startsWith('chip') ? `get('school').insertAdjacentHTML('beforebegin','<span id=\"selected-school\"></span>');` : ''}
 ${variant === 'chip-old' ? `get('selected-school').textContent='Example University';` : ''}
 ${variant === 'chip-invisible' ? `get('selected-school').style.opacity='0';` : ''}
 ${variant === 'chip-multi' ? `get('school').parentElement.insertAdjacentHTML('beforeend','<input aria-label=\"Unrelated field\">');` : ''}
 ${variant === 'chip-decoy' ? `root.append(get('selected-school'));` : ''}
+${variant === 'custom-reset' ? `get('reset-country').onclick=()=>{get('country').textContent='Choose country';report('country_reset','')};` : ''}
 root.querySelector('#unrelated button').onclick=()=>report('wrong','unrelated');
 function setup(id,list,label,delay){${!variant.startsWith('chip') ? "get(id).insertAdjacentHTML('beforebegin','<span data-selection-display id=display-'+id+'></span>');" : ''}${variant.startsWith('chip') ? "if(id==='address')get(id).insertAdjacentHTML('beforebegin','<span data-selection-display id=display-address></span>');" : ''}let seq=0;get(id).oninput=()=>{const mine=++seq;get(id).setAttribute('aria-expanded','true');get(id).setAttribute('aria-busy','true');get(list).hidden=false;get(list).innerHTML='<li role="option">Stale result</li>';setTimeout(()=>{if(mine!==seq)return;get(list).innerHTML='<li role="option">'+label+'</li>';get(id).setAttribute('aria-busy','false');get(list).firstChild.onmousedown=e=>{e.preventDefault();${variant.startsWith('chip') ? "if(id==='school'){get('selected-school').textContent=label;get(id).style.opacity='0'}else get(id).value=label;" : 'get(id).value=label;'}get(id).setAttribute('aria-expanded','false');get(list).hidden=true;${!variant.startsWith('chip') ? "get('display-'+id).textContent=label;" : ''}${variant === 'chip-invalid' ? "if(id==='school')get(id).setAttribute('aria-invalid','true');" : ''}${variant.startsWith('chip') ? "if(id==='address')get('display-address').textContent=label;" : ''}report(id,label)}},delay)}}
 setup('school','schools','Example University',${variant === 'shadow' ? 120 : 1200}); setup('address','addresses','10 Example Road, Ottawa',${variant === 'shadow' ? 1100 : 150});
@@ -36,11 +38,11 @@ const origin = `http://127.0.0.1:${server.address().port}`
 let browser
 try {
   browser = await launchIsolated()
-  for (const variant of (process.env.SELECTION_VARIANTS ?? 'portal,shadow,custom,chip,chip-decoy,chip-old,chip-invalid,chip-multi,chip-invisible').split(',')) {
+  for (const variant of (process.env.SELECTION_VARIANTS ?? 'portal,shadow,custom,custom-reset,chip,chip-decoy,chip-old,chip-invalid,chip-multi,chip-invisible').split(',')) {
     observations.set(variant,[])
-    const task = prepareTask({ startUrl:`${origin}/?variant=${variant}`, allowedOrigins:[origin], goal:'Select Canada, school Example University, address 10 Example Road, Ottawa, and appointment November 15, 2026. Apply the appointment date.',
-      inputs:{country:{value:'Canada',purpose:'country'},school:{value:'Example University',purpose:'school'},address:{value:'10 Example Road, Ottawa',purpose:'address'}}, llm:'none', irreversible:'deny', budgets:{maxSteps:30,maxJevRequests:20,timeoutMs:30000} })
-    const events=[]
+    const task = prepareTask({ startUrl:`${origin}/?variant=${variant}`, allowedOrigins:[origin], goal:'Select Canada, school Example University, address 10 Example Road, Ottawa, and appointment November 15, 2026. Apply the appointment date.'+(variant==='custom-reset'?' Before setting the date, reset Country once and select Canada again, restoring dependent selections.':''),
+      inputs:{country:{value:'Canada',purpose:'country'},school:{value:'Example University',purpose:'school'},address:{value:'10 Example Road, Ottawa',purpose:'address'}}, llm:'none', irreversible:'deny', budgets:{maxSteps:30,maxJevRequests:variant==='custom-reset'?30:20,timeoutMs:30000} })
+    const events=[]; let resetSeen=false
     const ask=async ({state,questions})=>{
       const choice=(q,id)=>({type:'choice',choice:id,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===id?1:0]))}), answers={}
       for(const [id,q] of Object.entries(questions)) {
@@ -48,13 +50,15 @@ try {
         else if(id.startsWith('field_')) answers[id]=choice(q,'keep')
         else if(id==='text_value') answers[id]=choice(q,'caller')
       }
+      resetSeen ||= state.recentActions.some(a=>a.target==='Reset country')
       const pending=state.pendingSelections?.[0]
       const date=state.elements.find(e=>e.name==='Appointment date')
       let op='WAIT', target
-      if(!pending&&variant==='custom'&&state.inputs.country.status!=='applied') target=state.elements.find(e=>e.name==='Country')
+      if((!pending||pending.status==='invalidated')&&variant.startsWith('custom')&&state.inputs.country.status!=='applied') target=state.elements.find(e=>e.name==='Country')
       else if(pending?.ready) target=state.elements.find(e=>pending.optionRefs.includes(e.id)&&e.name!=='Stale result')
       else if(!pending&&state.inputs.country.status==='applied'&&state.inputs.school.status==='applied'&&state.inputs.address.status==='applied') {
-        if(date?.value==='2026-11-15') op='DONE'
+        if(variant==='custom-reset'&&!resetSeen) target=state.elements.find(e=>e.name==='Reset country')
+        else if(date?.value==='2026-11-15') op='DONE'
         else {const actions=state.recentActions; const dayClicked=actions.some(a=>a.op==='click'&&a.target==='November 15, 2026');target=state.elements.find(e=>e.name===(dayClicked?'Apply':state.elements.some(e=>e.name==='November 15, 2026')?'November 15, 2026':state.elements.some(e=>e.name==='Next month')?'Next month':'Choose appointment date'))}
       }
       if(target) op='CLICK'
@@ -69,8 +73,8 @@ try {
     const observed=observations.get(variant)
     assert.equal(observed.some(e=>e.kind==='wrong'),false)
     const countryIndex=observed.findIndex(e=>e.kind==='country'); assert.ok(countryIndex>=0)
-    assert.equal(observed.filter(e=>e.kind==='country').length,1)
-    for(const [kind,value] of [['country','CA'],['school','Example University'],['address','10 Example Road, Ottawa'],['date','2026-11-15']]) assert.equal(observed.slice(countryIndex).filter(e=>e.kind===kind&&e.value===value).length,1,JSON.stringify(observed))
+    assert.equal(observed.filter(e=>e.kind==='country').length,variant==='custom-reset'?2:1)
+    for(const [kind,value] of [['country','CA'],['school','Example University'],['address','10 Example Road, Ottawa'],['date','2026-11-15']]) assert.equal(observed.slice(countryIndex).filter(e=>e.kind===kind&&e.value===value).length,variant==='custom-reset'&&kind!=='date'?2:1,JSON.stringify(observed))
     assert.ok(events.filter(e=>e.event==='selection_committed').length>=2)
     console.log(JSON.stringify({variant,passed:true,liveJev:false,oracle:observed,steps:result.metrics.steps}))
   }

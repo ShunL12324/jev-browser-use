@@ -179,7 +179,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     // Refs are per document: every record carries the document it acted on.
     const entry = { doc: before.documentId, op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(newText ? { newText } : {}), ...(confirmDenied !== undefined ? { confirmDenied } : {}), ...(res.redirectedTo ? { typedInto: `covering field ${res.redirectedTo}` } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
-    if (op === 'type' && postcondition !== 'unmet' || op === 'click' && choiceField(el) && !el.editable && !selections.pending(before).some(s => s.ref === el.ref)) selections.begin(before, page, el, args.text ?? '', valueId)
+    if (op === 'type' && postcondition !== 'unmet' || op === 'click' && choiceField(el) && !el.editable && !selections.pending(before).some(s => s.ref === el.ref && s.status !== 'invalidated')) selections.begin(before, page, el, args.text ?? '', valueId)
     if (selectionPick && valueId) selectionPick.r.valueId = valueId
     if (selections.finishPick(selectionPick, page, history)) emit({ event: 'selection_committed', ref: selectionPick.r.ref, valueId: selectionPick.r.valueId })
     selections.observe(page, history)

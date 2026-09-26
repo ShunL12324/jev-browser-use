@@ -13,7 +13,7 @@ export class Selections {
   records = new Map()
   begin(before, after, field, query, valueId) {
     if (!choiceField(field) || field.password || !field.editable && field.controls?.status !== 'known') return
-    this.records.set(key(before, field.ref), { doc: before.documentId, ref: field.ref, name: field.name, query, valueId,
+    this.records.set(key(before, field.ref), { doc: before.documentId, ref: field.ref, name: field.name, query, valueId: valueId ?? this.records.get(key(before, field.ref))?.valueId,
       status: 'query', baseline: signature(before, field), sawBusy: !!loading(after.elements.find(e => e.ref === field.ref)), fresh: false, started: performance.now() })
   }
   observe(page, history) {

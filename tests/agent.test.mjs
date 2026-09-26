@@ -568,3 +568,27 @@ test('cascade reset followed by DONE and not_now bindings remains blocked', asyn
   assert.equal(result.status, 'blocked'); assert.equal(result.reason, 'selection_unconfirmed')
   assert.ok(f.s.executed.some(e => e.ref === reset.ref))
 })
+
+test('noneditable country can reopen and reselect after reset while keeping input identity', async () => {
+  const field = button('Country', { role: 'combobox', value: 'Choose country', expanded: false, controls: { status: 'known', targets: [{ ref: 'countries', visible: false }] } })
+  const opt = button('Canada', { role: 'option', listbox: { ref: 'countries' } }), reset = button('Reset country')
+  const f = fake([field, reset], { hooks: {
+    [field.ref]: s => { s.elements[0].expanded = true; s.elements[0].controls.targets[0].visible = true; if (!s.elements.some(e => e.ref === opt.ref)) s.elements.push(structuredClone(opt)) },
+    [opt.ref]: s => { s.elements[0].value = 'Canada'; s.elements[0].expanded = false; s.elements[0].controls.targets[0].visible = false; s.elements = s.elements.filter(e => e.ref !== opt.ref) },
+    [reset.ref]: s => { s.elements[0].value = 'Choose country' }
+  } })
+  const ask = async payload => {
+    const resetDone = f.s.executed.some(e => e.ref === reset.ref)
+    const selected = f.s.executed.filter(e => e.ref === opt.ref).length
+    return answer({ bind: () => resetDone ? 'not_now' : 0, op: state => {
+      if (selected === 2) return ['DONE']
+      if (selected === 1 && !resetDone) return ['CLICK', reset.ref]
+      if (state.pendingSelections?.some(s => s.ready)) return ['CLICK', opt.ref]
+      return ['CLICK', field.ref]
+    } })(payload)
+  }
+  const { result, events } = await run(task({ inputs: { country: { value: 'Canada', purpose: 'country' } }, llm: 'none', budgets: { maxSteps: 20, maxJevRequests: 12, timeoutMs: 10000 } }), f, ask)
+  assert.equal(result.status, 'done', JSON.stringify(result))
+  assert.equal(f.s.executed.filter(e => e.ref === opt.ref).length, 2)
+  assert.equal(events.filter(e => e.event === 'selection_committed' && e.valueId === 'country').length, 2)
+})
