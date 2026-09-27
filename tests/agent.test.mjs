@@ -610,3 +610,28 @@ test('high confidence cannot execute a rejected generic popup wrapper', async ()
   assert.notEqual(result.status, 'done')
   assert.equal(f.s.executed.length, 0)
 })
+
+test('unconfirmed SPA pick expires read-only without asking for unrelated high-confidence actions', async () => {
+  const field = el('Address', { role: 'combobox', expanded: false, controls: { status: 'known', targets: [{ ref: 'owned', visible: false }] } })
+  const opt = button('10 Example Road, Example City', { role: 'option', listbox: { ref: 'owned' } })
+  const unrelated = el('Other search')
+  const f = fake([field], { hooks: {
+    [field.ref]: s => { s.elements[0].expanded = true; s.elements[0].controls.targets[0].visible = true; s.elements.push(structuredClone(opt)) },
+    [opt.ref]: s => { s.elements[0].name = 'Landmark'; s.elements[0].value = 'Landmark'; s.elements[0].expanded = false; s.elements[0].controls = { status: 'unknown', targets: [] }; s.elements = [s.elements[0], structuredClone(unrelated)]; s.url += '#result' }
+  } })
+  let asks = 0, readsAfterPick = 0
+  const call = f.call
+  f.call = async (name, args) => { if (args.action === 'agent_observe' && f.s.executed.some(e => e.ref === opt.ref)) readsAfterPick++; return call(name, args) }
+  const ask = async p => {
+    asks++
+    // If the host resumes ordinary decisions, this 100% CLICK must not run.
+    return answer({ op: () => [asks === 1 ? 'WAIT' : 'CLICK', asks === 2 ? opt.ref : unrelated.ref] })(p)
+  }
+  const { result } = await run(task({ inputs: { address: { value: '10 Example', purpose: 'address' } } }), f, ask)
+  assert.equal(result.status, 'blocked'); assert.equal(result.reason, 'selection_unconfirmed')
+  assert.equal(asks, 2); assert.ok(readsAfterPick > 1)
+  assert.deepEqual(f.s.executed.map(e => [e.op, e.ref]), [['type', field.ref], ['click', opt.ref]])
+  assert.equal(result.pendingSelections[0].valueId, 'address')
+  assert.equal(result.pendingSelections[0].selectedOption, opt.name)
+  assert.equal(result.handoffs.length, 0)
+})

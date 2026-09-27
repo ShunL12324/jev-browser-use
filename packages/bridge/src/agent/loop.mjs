@@ -1,6 +1,6 @@
 // browser_task decision loop: observe → one Jev request → policy → guarded
 // execution → event-driven settle. Executed actions are never replayed.
-import { Selections, choiceField, ownedOptions, isCandidate } from './selection.mjs'
+import { Selections, choiceField, ownedOptions, isCandidate, confirmingSelection } from './selection.mjs'
 import { setTimeout as delay } from 'node:timers/promises'
 import { RunError } from '../jev/core.mjs'
 import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
@@ -123,6 +123,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   }
   // Executes one operation on the current page, then settles and re-observes.
   const exec = async (op, el, args = {}, valueId, quick = false) => {
+    if (confirmingSelection(page)) return { sent: false, code: 'SELECTION_CONFIRMING' }
     const before = page
     const selectionPick = op === 'click' ? selections.beforePick(before, el) : null
     const request = { action: 'agent_execute', documentId: page.documentId, url: page.url, op, ...(el ? { ref: el.ref, guard: el.guard } : {}), ...args }
@@ -194,6 +195,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const OP = { CLICK: 'click', PRESS_ENTER: 'key', SCROLL_DOWN: 'scroll_down', SCROLL_UP: 'scroll_up', WAIT: 'wait', GO_BACK: 'back' }
   // Runs a model- or caller-selected operation after its risk checks.
   const act = async (op, target, el, answers, built) => {
+    if (confirmingSelection(page)) return result('blocked', { reason: 'selection_unconfirmed', pendingSelections: selections.pending(page) })
     if (op === 'DONE') return selections.pending(page).length ? result('blocked', { reason: 'selection_unconfirmed', pendingSelections: selections.pending(page) }) : result('done', { verification: 'model_done' })
     if (op === 'SWITCH_TAB' || op === 'CLOSE_TAB') {
       const before = page
@@ -298,6 +300,9 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
         allowed.add(originOf(page.url))
       }
       if (selections.waiting(page)) { await delay(100, undefined, { signal }); await observe(); continue }
+      // A sent pick owns the task until independent evidence commits it. The
+      // bounded wait above is read-only; expiry must not reopen the action space.
+      if (confirmingSelection(page)) return result('blocked', { reason: 'selection_unconfirmed', pendingSelections: selections.pending(page) })
       const built = build(page, task, history, [...seenValues.values()])
       m.jevRequests++
       const response = await timed('jevMs', () => ask(built.payload, { signal }))

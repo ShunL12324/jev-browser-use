@@ -1,4 +1,4 @@
-import { selectionAllows, isCandidate } from './selection.mjs'
+import { selectionAllows, isCandidate, confirmingSelection } from './selection.mjs'
 // Action space over one observation: which operations and targets exist, which
 // supplied inputs each field could receive, and deterministic risk tiers.
 // Only observed element facts are used; there is no site knowledge here.
@@ -55,6 +55,7 @@ export function targets(page, used = new Set()) {
 export function pageOperations(page, history, used) {
   const ops = {}
   const t = targets(page, used)
+  if (confirmingSelection(page)) return { ops: { WAIT: OPERATIONS.WAIT }, targets: t }
   for (const op of ['CLICK', 'TYPE_TEXT', 'SELECT', 'PRESS_ENTER']) if (Object.keys(t[op]).length) ops[op] = OPERATIONS[op]
   if (page.scroll.y + page.scroll.viewport < page.scroll.height - 2) ops.SCROLL_DOWN = OPERATIONS.SCROLL_DOWN
   if (page.scroll.y > 0) ops.SCROLL_UP = OPERATIONS.SCROLL_UP

@@ -2,6 +2,7 @@
 // committed selection. No selectors, labels, site names or business data here.
 const norm = s => String(s ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
 export const choiceField = e => !!e && e.tag !== 'select' && (e.role === 'combobox' || ['listbox', 'grid'].includes(e.hasPopup) || ['list', 'both'].includes(e.autocomplete))
+export const confirmingSelection = page => (page.selections ?? []).some(s => s.status === 'confirming')
 export const isCandidate = e => e?.role === 'option' || e?.candidate?.source === 'explicit_controlled_popup'
 export const ownedOptions = (page, field) => field?.controls?.status === 'known'
   ? page.elements.filter(e => isCandidate(e) && e.popupMember?.status !== 'rejected' && !e.disabled && (e.candidate ? e.candidate.ownerRef === field.ref && field.controls.targets.some(t => t.ref === e.candidate.popupRef && t.visible) : e.listbox && field.controls.targets.some(t => t.ref === e.listbox.ref && t.visible))) : []
@@ -36,7 +37,7 @@ export class Selections {
       if (!loading(field) && (r.sawBusy || signature(page, field) !== r.baseline)) r.fresh = true
     }
     page.selections = [...this.records.values()].filter(r => r.status === 'confirming' || r.doc === page.documentId && r.status !== 'committed')
-      .map(r => ({ documentId: r.doc, ref: r.ref, name: r.name, query: r.query, valueId: r.valueId, status: r.status,
+      .map(r => ({ documentId: r.doc, ref: r.ref, name: r.name, query: r.query, valueId: r.valueId, status: r.status, ...(r.status === 'confirming' ? { selectedOption: r.pick.option.name, missingEvidence: 'independent_selection_commit' } : {}),
         ready: r.status === 'query' && r.fresh && !loading(page.elements.find(e => e.ref === r.ref)),
         optionRefs: (r.doc === page.documentId ? ownedOptions(page, page.elements.find(e => e.ref === r.ref)) : []).filter(e => !e.disabled && !e.modalBlocked).map(e => e.ref) }))
   }
@@ -71,6 +72,7 @@ export class Selections {
 // batches. Candidate lists belonging to other fields cannot finish this query.
 export function selectionAllows(page, e) {
   const pending = page.selections ?? []
+  if (confirmingSelection(page)) return false
   if (e.popupMember?.status === 'rejected') return false
   if (!isCandidate(e) || !pending.length) return true
   return pending.some(s => s.ready && s.optionRefs.includes(e.ref))

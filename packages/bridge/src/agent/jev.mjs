@@ -1,3 +1,4 @@
+import { selectionAllows } from './selection.mjs'
 // One Jev request per cycle: operation + one target head per offered
 // operation + one binding head per pending supplied input (speculative
 // fan-out). Answers are consumed by loop.mjs; nothing here executes.
@@ -79,7 +80,7 @@ export function build(page, task, history, seen = []) {
   // Several goal-specified fields are then filled in one cycle.
   const claimed = new Set(Object.values(binds).flatMap(b => Object.keys(b.candidates)))
   const goalSpanList = goalOnly.length ? goalOnly : goalSpans(task.goal), fields = {}
-  const fillable = page.elements.filter(e => !e.disabled && !e.modalBlocked && !e.unreachable && e.inView && !used.has(e.ref) && !page.selections?.some(s => s.ref === e.ref && s.status !== 'invalidated') && !claimed.has(e.ref) && !failed.has(`field:${page.documentId.slice(0, 8)}:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
+  const fillable = page.elements.filter(e => selectionAllows(page, e) && !e.disabled && !e.modalBlocked && !e.unreachable && e.inView && !used.has(e.ref) && !page.selections?.some(s => s.ref === e.ref && s.status !== 'invalidated') && !claimed.has(e.ref) && !failed.has(`field:${page.documentId.slice(0, 8)}:${e.ref}`) && (e.editable && !e.password || e.tag === 'select' || ['checkbox', 'radio'].includes(e.inputType) && !e.checked))
   for (const e of (page.selections?.length ? fillable.filter(e => page.selections.some(s => s.ref === e.ref && s.status === 'invalidated')).slice(0, 12) : fillable.slice(0, 12))) {
     const choices = e.tag === 'select' ? Object.fromEntries(e.options.filter(o => !o.disabled && o.value !== e.value && o.value !== '').slice(0, 40).map((o, i) => [`o${i + 1}`, { label: o.label, value: o.value }]))
       : e.inputType === 'checkbox' || e.inputType === 'radio' ? { set: { label: 'checked', checked: true } } : Object.fromEntries(goalSpanList.filter(t => t !== e.value).map((t, i) => [`t${i + 1}`, { label: t, text: t }]))

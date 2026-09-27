@@ -172,3 +172,24 @@ test('eligible grid candidate still cannot bypass pending busy or stale query', 
     assert.equal(selectionAllows(after, item), false); assert.equal(s.beforePick(after, item), null)
   }
 })
+
+test('a confirming pick freezes element, binding and page actions, preserving its obligation', () => {
+  const { s, after, history } = query()
+  const pick = s.beforePick(after, after.elements[1])
+  s.finishPick(pick, after, history)
+  after.elements.push(owner({ ref: 'unrelated', role: 'textbox', name: 'Other search' }))
+  after.tabs = [{ id: 1, current: true }, { id: 2, current: false, title: 'Other', url: after.url }]
+  after.scroll = { y: 40, height: 900, viewport: 100 }
+  s.observe(after, history)
+  for (const e of after.elements) assert.equal(selectionAllows(after, e), false)
+  const b = build(after, task, [{ navigated: true }])
+  assert.deepEqual(Object.keys(b.ops), ['WAIT'])
+  assert.ok(Object.values(b.targets).every(t => Object.keys(t).length === 0))
+  assert.deepEqual(b.binds, {}); assert.deepEqual(b.fields, {})
+  assert.equal(after.selections[0].valueId, 'school')
+  assert.equal(after.selections[0].selectedOption, 'Example University')
+  assert.equal(after.selections[0].missingEvidence, 'independent_selection_commit')
+  after.documentId = 'next'; s.observe(after, history)
+  assert.equal(after.selections[0].status, 'confirming')
+  assert.equal(selectionAllows(after, after.elements.at(-1)), false)
+})
