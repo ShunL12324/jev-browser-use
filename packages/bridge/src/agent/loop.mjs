@@ -1,3 +1,4 @@
+import { InputFeedback, hasInputFeedback } from './input-feedback.mjs'
 // browser_task decision loop: observe → one Jev request → policy → guarded
 // execution → event-driven settle. Executed actions are never replayed.
 import { Selections, choiceField, ownedOptions, isCandidate, confirmingSelection } from './selection.mjs'
@@ -7,8 +8,9 @@ import { build, invalidAnswers, normalize, pageValues } from './jev.mjs'
 import { bindCandidates, fits, describe, tier, irreversible, GATES, R2_MARGIN, SUBMIT_GATE, SAFE_NAV_GATE, safeNavigation, norm } from './space.mjs'
 
 const now = () => performance.now()
-export const AGENT_PROTOCOL = 7
+export const AGENT_PROTOCOL = 8
 export const OBSERVE_TIMEOUT_MS = Number(process.env.JEV_OBSERVE_TIMEOUT_MS ?? 5000)
+const redactFeedback = (v, secret) => typeof v === 'string' ? v.split(secret).join('‹secret›') : Array.isArray(v) ? v.map(x => redactFeedback(x, secret)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, redactFeedback(x, secret)])) : v
 const crossDocumentHref = (href, current) => { try { const a = new URL(href), b = new URL(current); return a.origin + a.pathname + a.search !== b.origin + b.pathname + b.search } catch { return false } }
 // Enter in a form submits it: judge it as its submit control (or an unnamed
 // POST/submit stand-in when the form has none).
@@ -23,7 +25,7 @@ const sameTarget = (judged, page, ref) => { const a = judged.elements.find(e => 
 
 export async function runTask(task, { call, ask, handoff, emit = () => {}, signal, files = () => { throw new RunError('FILE_UNAUTHORIZED', 'No file manifest.') } }) {
   const m = { agentMs: 0, navigationMs: 0, jevMs: 0, observeMs: 0, execMs: 0, settleMs: 0, handoffWaitMs: 0, jevRequests: 0, jevInputTokens: 0, jevUnknownUsage: 0, llmRequests: 0, llmTokens: 0, llmUnknownUsage: 0, steps: 0, stale: 0, handoffs: 0, handoffKinds: {}, decisions: {} }
-  const selections = new Selections()
+  const selections = new Selections(), inputFeedback = new InputFeedback()
   const history = [], allowed = new Set(task.allowedOrigins), repeats = new Map(), textCache = new Map()
   const secrets = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
   let tabId, page, agentStart, stalls = 0, stallHandoffs = 0, navPending = false, settleEnvSeen = false
@@ -38,7 +40,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     const committed = history.filter(h => h.op === 'selection' && h.postcondition === 'met')
       .map(({ doc, ref, valueId, selectedOption }) => ({ documentId: doc, ref, valueId, selectedOption }))
     return { status, finalUrl: page?.url, tabId, taskTabs: [...taskTabs.keys()], metrics: m, handoffs: handoffLog,
-      ...(pending.length ? { pendingSelections: pending } : {}), ...(committed.length ? { committedSelections: committed } : {}), ...extra }
+      ...(page?.inputFeedback?.length ? { inputFeedback: page.inputFeedback } : {}), ...(pending.length ? { pendingSelections: pending } : {}), ...(committed.length ? { committedSelections: committed } : {}), ...extra }
   }
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
   // A page read that hangs (content script not answering) is abandoned after
@@ -70,10 +72,11 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     }
     page.tabs = taskTabs.size > 1 ? [...taskTabs.values()].map(t => ({ id: t.id, title: t.title ?? '', url: t.url ?? '', current: t.id === tabId })) : []
     // Secret plaintext typed into a non-password field must not re-enter state.
-    for (const secret of secrets) { page.text = page.text.split(secret).join('‹secret›'); for (const e of page.elements) if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›') }
+    for (const secret of secrets) { page.text = page.text.split(secret).join('‹secret›'); for (const e of page.elements) { if (typeof e.value === 'string' && e.value.includes(secret)) e.value = e.value.split(secret).join('‹secret›'); if (e.fieldFeedback) e.fieldFeedback = redactFeedback(e.fieldFeedback, secret) } }
     for (const e of page.elements) if ((refused.get(`${page.documentId}|${e.ref}`) ?? 0) >= 2) e.unreachable = true
     // After secret redaction: remembered values never include secrets.
     for (const v of pageValues(page.text)) { seenValues.delete(v); seenValues.set(v, { text: v, source: page.title }) }
+    inputFeedback.observe(page, history)
     selections.observe(page, history)
     emit({ event: 'observation', documentId: page.documentId, build: page.build, url: page.url, elements: page.elements.length, omitted: page.omitted, textChars: page.text.length })
     return page
@@ -130,13 +133,14 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   }
   // Executes one operation on the current page, then settles and re-observes.
   const exec = async (op, el, args = {}, valueId, quick = false) => {
-    if (confirmingSelection(page)) return { sent: false, code: 'SELECTION_CONFIRMING' }
+    if (confirmingSelection(page) || hasInputFeedback(page)) return { sent: false, code: 'INPUT_TRANSACTION_PENDING' }
     const before = page
     const selectionPick = op === 'click' ? selections.beforePick(before, el) : null
     const request = { action: 'agent_execute', documentId: page.documentId, url: page.url, op, ...(el ? { ref: el.ref, guard: el.guard } : {}), ...args }
     if (op === 'upload') { request.files = [files(args.fileId)]; delete request.fileId }
     const secret = valueId && task.inputs[valueId]?.secret ? task.inputs[valueId] : null
     if (secret && !secret.origins?.includes(originOf(page.url))) throw new RunError('SECRET_ORIGIN', 'Secret is not authorized for this document origin; nothing typed.')
+    if (secret) request.redactInput = true
     emit({ event: 'execute', op, ref: el?.ref, name: el?.name, context: el?.context, valueId })
     let res
     try { res = await s1(request, 'execMs') } catch (error) { emit({ event: 'outcome', execution: 'unknown', code: error.code }); throw new RunError('OUTCOME_UNKNOWN', 'Execution transport failed; the action is not replayed.') }
@@ -157,6 +161,8 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       stalls++
       await observe(); return { sent: false, code: res.code }
     }
+    if (op === 'type' && !secret) inputFeedback.begin(secrets.reduce((receipt, secret) => redactFeedback(receipt, secret), res.inputReceipt), valueId)
+    if (selectionPick) inputFeedback.picked(selectionPick.r.doc, selectionPick.r.ref)
     m.steps++
     // A link to another document may start navigating after the settle
     // window (script-driven suggestions, slow networks); so may a form submit.
@@ -190,8 +196,9 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     // Refs are per document: every record carries the document it acted on.
     const entry = { doc: before.documentId, op, ref: el?.ref, name: el?.name, valueId, changed, postcondition, ...(newText ? { newText } : {}), ...(confirmDenied !== undefined ? { confirmDenied } : {}), ...(res.redirectedTo ? { typedInto: `covering field ${res.redirectedTo}` } : {}), navigated: page.documentId !== before.documentId, form: el?.form, submit: el?.submit, ...(op === 'type' && !task.inputs[valueId]?.secret ? { text: args.text } : {}) }
     history.push(entry); emit({ event: 'outcome', execution: 'returned', ...entry })
-    if (op === 'type' && postcondition !== 'unmet' || op === 'click' && choiceField(el) && !el.editable && !selections.pending(before).some(s => s.ref === el.ref && s.status !== 'invalidated')) selections.begin(before, page, el, args.text ?? '', valueId)
+    if (op === 'type' && postcondition !== 'unmet' && !res.redirectedTo || op === 'click' && choiceField(el) && !el.editable && !selections.pending(before).some(s => s.ref === el.ref && s.status !== 'invalidated')) selections.begin(before, page, el, args.text ?? '', valueId)
     if (selectionPick && valueId) selectionPick.r.valueId = valueId
+    inputFeedback.observe(page, history)
     if (selections.finishPick(selectionPick, page, history)) emit({ event: 'selection_committed', ref: selectionPick.r.ref, valueId: selectionPick.r.valueId })
     selections.observe(page, history)
     stalls = changed || op === 'wait' ? 0 : stalls + 1
@@ -202,6 +209,7 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   const OP = { CLICK: 'click', PRESS_ENTER: 'key', SCROLL_DOWN: 'scroll_down', SCROLL_UP: 'scroll_up', WAIT: 'wait', GO_BACK: 'back' }
   // Runs a model- or caller-selected operation after its risk checks.
   const act = async (op, target, el, answers, built) => {
+    if (hasInputFeedback(page)) return result('blocked', { reason: page.inputFeedback[0].status })
     if (confirmingSelection(page)) return result('blocked', { reason: 'selection_unconfirmed', pendingSelections: selections.pending(page) })
     if (op === 'DONE') return selections.pending(page).length ? result('blocked', { reason: 'selection_unconfirmed', pendingSelections: selections.pending(page) }) : result('done', { verification: 'model_done' })
     if (op === 'SWITCH_TAB' || op === 'CLOSE_TAB') {
@@ -302,11 +310,12 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
       // Exhausted action/model budgets forbid spending more, not observing an
       // already-sent pick. Preserve the original confirmation deadline and
       // abort signal; never extend this exception to an unapproved origin.
-      if (confirmingSelection(page) && allowed.has(originOf(page.url)) && selections.waiting(page)) {
+      if (!hasInputFeedback(page) && confirmingSelection(page) && allowed.has(originOf(page.url)) && selections.waiting(page)) {
         await delay(100, undefined, { signal }); await observe(); continue
       }
       if (m.steps >= task.budgets.maxSteps) return result('blocked', { reason: 'step_limit' })
       if (m.jevRequests >= task.budgets.maxJevRequests) return result('blocked', { reason: 'jev_request_limit' })
+      if (hasInputFeedback(page)) return result('blocked', { reason: page.inputFeedback[0].status })
       if (!allowed.has(originOf(page.url))) {
         const ok = await confirm(`The task tab reached ${originOf(page.url)}, which is not allowed. Allow it for this task?`, 'allow_origin')
         if (!ok.approve) return result('blocked', { reason: 'origin_denied' })

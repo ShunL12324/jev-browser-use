@@ -1,3 +1,4 @@
+import { fieldFeedback } from './field-feedback'
 import { actSetFiles } from './actions'
 import { shadowOf } from './shadow'
 import { documentId } from './document'
@@ -56,6 +57,7 @@ export function facts(el: Element, active = dialogs()) {
     expanded: ariaBoolean('aria-expanded'), selected: ariaBoolean('aria-selected'),
     hasPopup: popup && ['false', 'true', 'menu', 'listbox', 'tree', 'grid', 'dialog'].includes(popup) ? popup : null,
     listbox: listbox ? { ...relationTarget(listbox), source: 'dom_ancestor' } : null, controls,
+    fieldFeedback: fieldFeedback(el),
     required: control?.required ?? null,
     valid: control?.willValidate ? control.validity.valid : null,
     buttonType: button?.type ?? null, formInvalidCount,

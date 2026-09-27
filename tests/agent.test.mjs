@@ -671,3 +671,32 @@ for (const limit of ['maxJevRequests', 'maxSteps']) for (const delayedCommit of 
     }
   })
 }
+
+for (const explicit of [true, false]) test(`input ${explicit ? 'rejection' : 'associated feedback'} blocks same-cycle exact pick at final action budget`, async () => {
+  const field = el('Address', { role: 'combobox', controls: { status: 'known', targets: [{ ref: 'owned', visible: false }] } })
+  const opt = button('Full address', { role: 'option', listbox: { ref: 'owned' } })
+  const meta = { ownerRef: field.ref, rootId: 'root', connected: true, native: { willValidate: true, validity: { valid: true }, validationMessage: '' }, ariaInvalid: { raw: null, invalid: false }, descriptions: [] }
+  const changed = { ...structuredClone(meta), ariaInvalid: { raw: explicit ? 'true' : null, invalid: explicit }, descriptions: [{ source: 'aria-describedby', id: 'error', targetRef: 'error', text: 'Input is not accepted', status: 'visible', complete: true }] }
+  const f = fake([field], { hooks: { [field.ref]: s => { s.elements[0].expanded = true; s.elements[0].controls.targets[0].visible = true; s.elements[0].fieldFeedback = changed; s.elements.push(structuredClone(opt)) } } })
+  const call = f.call
+  f.call = async (name, args) => {
+    const res = await call(name, args)
+    if (args.action === 'agent_execute' && args.op === 'type') res.inputReceipt = { documentId: 'd1', ref: field.ref, before: meta, after: changed, valueBefore: '', requestedValue: args.text, actualValue: args.text }
+    return res
+  }
+  const { result } = await run(task({ inputs: { address: { value: opt.name, purpose: 'address' } }, budgets: { maxSteps: 1, maxJevRequests: 6, timeoutMs: 10000 } }), f, answer())
+  assert.equal(result.reason, 'step_limit'); assert.equal(result.inputFeedback[0].status, explicit ? 'input_rejected' : 'input_feedback_unresolved')
+  assert.equal(result.inputFeedback[0].valueId, 'address'); assert.equal(result.inputFeedback[0].actualValue, opt.name)
+  assert.deepEqual(f.s.executed.map(e => e.op), ['type']); assert.equal(result.metrics.jevRequests, 1); assert.equal(result.handoffs.length, 0)
+})
+
+test('secret inputs opt out of receipts and new field metadata is redacted before the model', async () => {
+  const secret = 'private-value-123'
+  const field = el('Account token', { fieldFeedback: { ownerRef: 'x', rootId: 'root', constraints: { attributes: {} }, native: { willValidate: true, validity: { valid: true }, validationMessage: secret }, ariaInvalid: { raw: null, invalid: false }, descriptions: [{ text: secret, status: 'visible', complete: true }] } })
+  const f = fake([field]); let asks = 0
+  const call = f.call
+  f.call = async (name, args) => { const res = await call(name, args); if (args.action === 'agent_execute' && args.op === 'type') res.applied = true; return res }
+  const ask = async p => { asks++; assert.ok(!JSON.stringify(p).includes(secret)); return answer()(p) }
+  const { result } = await run(task({ inputs: { token: { value: secret, purpose: 'Account token', secret: true, origins: [origin] } } }), f, ask)
+  assert.equal(result.status, 'done'); assert.ok(asks > 0); assert.equal(f.s.executed[0].redactInput, true); assert.equal(result.inputFeedback, undefined)
+})

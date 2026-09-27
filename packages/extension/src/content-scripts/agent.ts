@@ -1,3 +1,4 @@
+import { fieldFeedback } from './field-feedback'
 import { selectionCandidate, selectionMembership } from './selection-candidate'
 import { activeModals } from './modal'
 // browser_task page side: one synchronous observation of the top document
@@ -25,7 +26,7 @@ function guard(el: Element, active = activeModals()) {
   const f = facts(el, active), scope = el.closest('form,dialog,[role="dialog"],fieldset,li,tr,[role="row"],[role="listbox"]') ?? el.parentElement
   const root = el.getRootNode() as Document | ShadowRoot
   const owners = f.listbox ? Array.from(root.querySelectorAll('[aria-controls]')).filter(owner => facts(owner, active).controls.targets.some(t => t.ref === f.listbox!.ref)).map(owner => { const o = facts(owner, active); return [getOrAssignRef(owner).ref, o.value, o.expanded, owner.getAttribute('aria-busy')] }) : []
-  return hash(JSON.stringify([selectionMembership(el, candidate), candidate ? [candidate.facts, (candidate.owner as HTMLInputElement).value, candidate.owner.getAttribute('aria-expanded'), candidate.owner.getAttribute('aria-busy'), candidate.popup.getAttribute('aria-busy')] : null, owners, el.closest('[role="listbox"]')?.getAttribute('aria-busy'), f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.inert, f.readonly, f.context, f.dialog, f.modalBlocked, f.modalBlockers, f.controls, f.listbox, el.getAttribute('aria-busy'), scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
+  return hash(JSON.stringify([selectionMembership(el, candidate), candidate ? [candidate.facts, (candidate.owner as HTMLInputElement).value, candidate.owner.getAttribute('aria-expanded'), candidate.owner.getAttribute('aria-busy'), candidate.popup.getAttribute('aria-busy')] : null, owners, el.closest('[role="listbox"]')?.getAttribute('aria-busy'), f.role, f.name, f.value, f.checked, f.selected, f.expanded, f.disabled, f.inert, f.readonly, f.context, f.dialog, f.modalBlocked, f.modalBlockers, f.controls, f.listbox, f.fieldFeedback, el.getAttribute('aria-busy'), scope?.textContent?.replace(/\s+/g, ' ').slice(0, 2000) ?? '']))
 }
 // Text of the list item / row / card holding a control, when it adds to the
 // control's own name (e.g. which reservation a "Cancel" button belongs to).
@@ -90,7 +91,7 @@ function observe(limit: number) {
     const candidate = selectionCandidate(el)
     const input = el instanceof HTMLInputElement ? el : null
     return { ref: it.ref, role: f.role, name: candidate?.label ?? f.name, candidate: candidate?.facts, popupMember: selectionMembership(el, candidate), tag: f.tag, inputType: f.inputType, value: input?.type === 'password' ? (input.value ? '•••' : '') : f.role === 'combobox' && !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) ? (el as HTMLElement).innerText?.trim().slice(0, 120) || null : f.value,
-      controls: f.controls, listbox: f.listbox, busy: el.getAttribute('aria-busy') === 'true', invalid: el.getAttribute('aria-invalid') === 'true' || f.valid === false, autocomplete: el.getAttribute('aria-autocomplete'), displayValue: (el as HTMLElement).innerText?.trim().slice(0, 120),
+      fieldFeedback: f.fieldFeedback, controls: f.controls, listbox: f.listbox, busy: el.getAttribute('aria-busy') === 'true', invalid: el.getAttribute('aria-invalid') === 'true' || f.valid === false, autocomplete: el.getAttribute('aria-autocomplete'), displayValue: (el as HTMLElement).innerText?.trim().slice(0, 120),
       checked: f.checked, selected: f.selected, expanded: f.expanded, hasPopup: f.hasPopup, disabled: f.disabled || f.inert || candidate?.disabled === true, readonly: f.readonly, required: f.required, valid: f.valid,
       modalBlocked: f.modalBlocked, modalBlockers: f.modalBlockers, dialog: f.dialog, context: f.context, href: f.href, options: f.options, files: f.files?.length, editable: editable(el) && !f.readonly,
       password: input?.type === 'password', submit: f.buttonType === 'submit' || input?.type === 'submit' || input?.type === 'image', formMethod: (el as HTMLInputElement).form?.method ?? null,
@@ -174,6 +175,8 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
   // Navigation API reports same-tick cross-document navigations. A native
   // form submission is detected exactly: a submit event that no handler
   // prevented will navigate (SPA handlers call preventDefault).
+  const inputBefore = op === 'type' && el && !q.redactInput ? fieldFeedback(el) : null
+  const valueBefore = inputBefore ? (el!.isContentEditable ? el!.innerText : (el as HTMLInputElement).value) : null
   let submitEvent: Event | null = null
   const onSubmit = (e: Event) => { submitEvent = e }
   addEventListener('submit', onSubmit, true)
@@ -214,7 +217,7 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
   const target = el as HTMLInputElement | null
   const applied = op === 'type' ? (target!.isContentEditable ? target!.innerText.trim() === String(q.text).trim() : target!.value === q.text)
     : op === 'select' ? target!.value === q.value : op === 'check' ? target!.checked === q.checked : op === 'upload' ? !!target!.files?.length : undefined
-  return { ok: true as const, execution: 'returned', crossDocument: crossDocument || formNavigates, ...(applied !== undefined ? { applied } : {}), ...(redirected ? { redirectedTo: redirected } : {}) }
+  return { ok: true as const, execution: 'returned', crossDocument: crossDocument || formNavigates, ...(applied !== undefined ? { applied } : {}), ...(redirected ? { redirectedTo: redirected } : {}), ...(inputBefore ? { inputReceipt: { documentId, ref: inputBefore.ownerRef, redirected: !!redirected, before: inputBefore, after: fieldFeedback(el!), valueBefore, requestedValue: q.text, actualValue: target!.isContentEditable ? target!.innerText : target!.value } } : {}) }
 }
 // Settle state, answered immediately: the bridge does all waiting with its
 // own (unthrottled) timers and polls this. A MutationObserver counter tells

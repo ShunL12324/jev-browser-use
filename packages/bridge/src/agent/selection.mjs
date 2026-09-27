@@ -1,3 +1,4 @@
+import { hasInputFeedback } from './input-feedback.mjs'
 // Selection transactions use observed UI facts only. Query text is never a
 // committed selection. No selectors, labels, site names or business data here.
 const norm = s => String(s ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -23,6 +24,10 @@ export class Selections {
       if (r.doc !== page.documentId) continue
       const field = page.elements.find(e => e.ref === r.ref)
       if (r.status === 'confirming') this.finishPick(r.pick, page, history)
+      if (r.status === 'committed' && field?.invalid) {
+        r.status = 'invalidated'
+        for (const h of history) if (h.doc === r.doc && (h.ref === r.ref || r.valueId && h.valueId === r.valueId)) h.postcondition = 'invalidated'
+      }
       if (r.status === 'committed' && r.witness && !page.selectionWitnesses?.some(w => w.ref === r.ref && w.option === r.pick.option.name && w.source === 'labelled_field_display' && w.committed)) {
         r.status = 'invalidated'
         for (const h of history) if (h.doc === r.doc && (h.ref === r.ref || r.valueId && h.valueId === r.valueId)) h.postcondition = 'invalidated'
@@ -44,7 +49,7 @@ export class Selections {
   pending(page) { return page.selections ?? [] }
   waiting(page) { return this.pending(page).some(r => !r.ready && performance.now() - this.records.get(`${r.documentId ?? page.documentId}|${r.ref}`).started < 3000) }
   beforePick(page, option) {
-    if (!isCandidate(option)) return null
+    if (hasInputFeedback(page) || !isCandidate(option)) return null
     const owners = page.elements.filter(e => choiceField(e) && ownedOptions(page, e).some(o => o.ref === option.ref))
     if (owners.length !== 1) return null
     const field = owners[0], r = this.records.get(key(page, field.ref))
@@ -52,7 +57,7 @@ export class Selections {
     return { r, valueBefore: value(field), fieldName: field.name, lists: field.controls.targets.map(t => t.ref), option: { ref: option.ref, name: option.name }, wasOpen: field.expanded === true || field.controls.targets.some(t => t.visible) }
   }
   finishPick(pick, page, history) {
-    if (!pick) return false
+    if (!pick || hasInputFeedback(page)) return false
     const { r, option, wasOpen, valueBefore, fieldName, lists } = pick
     if (r.status !== 'confirming') { r.pick = pick; r.status = 'confirming'; r.started = performance.now() }
     if (r.doc !== page.documentId) return false // navigation alone cannot commit a selection
@@ -72,7 +77,7 @@ export class Selections {
 // batches. Candidate lists belonging to other fields cannot finish this query.
 export function selectionAllows(page, e) {
   const pending = page.selections ?? []
-  if (confirmingSelection(page)) return false
+  if (confirmingSelection(page) || hasInputFeedback(page)) return false
   if (e.popupMember?.status === 'rejected') return false
   if (!isCandidate(e) || !pending.length) return true
   return pending.some(s => s.ready && s.optionRefs.includes(e.ref))
