@@ -32,7 +32,14 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
   // handoffs: every caller round trip with wall-clock times (graders check that
   // an approved confirm precedes each commit).
   const handoffLog = []
-  const result = (status, extra = {}) => { m.agentMs = agentStart ? now() - agentStart : 0; return { status, finalUrl: page?.url, tabId, taskTabs: [...taskTabs.keys()], metrics: m, handoffs: handoffLog, ...extra } }
+  const result = (status, extra = {}) => {
+    m.agentMs = agentStart ? now() - agentStart : 0
+    const pending = page ? selections.pending(page) : []
+    const committed = history.filter(h => h.op === 'selection' && h.postcondition === 'met')
+      .map(({ doc, ref, valueId, selectedOption }) => ({ documentId: doc, ref, valueId, selectedOption }))
+    return { status, finalUrl: page?.url, tabId, taskTabs: [...taskTabs.keys()], metrics: m, handoffs: handoffLog,
+      ...(pending.length ? { pendingSelections: pending } : {}), ...(committed.length ? { committedSelections: committed } : {}), ...extra }
+  }
   const s1 = (args, key) => timed(key, () => call('s1', { tabId, ...args }, signal))
   // A page read that hangs (content script not answering) is abandoned after
   // OBSERVE_TIMEOUT_MS and treated like an unreachable page.
@@ -292,6 +299,12 @@ export async function runTask(task, { call, ask, handoff, emit = () => {}, signa
     await observe()
     for (;;) {
       signal?.throwIfAborted()
+      // Exhausted action/model budgets forbid spending more, not observing an
+      // already-sent pick. Preserve the original confirmation deadline and
+      // abort signal; never extend this exception to an unapproved origin.
+      if (confirmingSelection(page) && allowed.has(originOf(page.url)) && selections.waiting(page)) {
+        await delay(100, undefined, { signal }); await observe(); continue
+      }
       if (m.steps >= task.budgets.maxSteps) return result('blocked', { reason: 'step_limit' })
       if (m.jevRequests >= task.budgets.maxJevRequests) return result('blocked', { reason: 'jev_request_limit' })
       if (!allowed.has(originOf(page.url))) {

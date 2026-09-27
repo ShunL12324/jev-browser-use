@@ -635,3 +635,39 @@ test('unconfirmed SPA pick expires read-only without asking for unrelated high-c
   assert.equal(result.pendingSelections[0].selectedOption, opt.name)
   assert.equal(result.handoffs.length, 0)
 })
+
+for (const limit of ['maxJevRequests', 'maxSteps']) for (const delayedCommit of [false, true]) {
+  test(`last ${limit} pick preserves ${delayedCommit ? 'delayed commitment' : 'pending obligation'} without extra spending`, async () => {
+    const field = el('School', { role: 'combobox', expanded: false, controls: { status: 'known', targets: [{ ref: 'owned', visible: false }] } })
+    const opt = button('Example University', { role: 'option', listbox: { ref: 'owned' } })
+    const f = fake([field], { hooks: {
+      [field.ref]: s => { s.elements[0].expanded = true; s.elements[0].controls.targets[0].visible = true; s.elements.push(structuredClone(opt)) },
+      [opt.ref]: s => { s.elements = [s.elements[0]]; s.elements[0].expanded = false; s.elements[0].controls.targets[0].visible = false }
+    } })
+    let asks = 0, reads = 0
+    const call = f.call
+    f.call = async (name, args) => {
+      if (args.action === 'agent_observe' && f.s.executed.some(e => e.ref === opt.ref)) {
+        reads++
+        if (delayedCommit && reads === 4) f.s.selectionWitnesses = [{ ref: field.ref, option: opt.name, source: 'labelled_field_display', committed: true }]
+      }
+      return call(name, args)
+    }
+    const ask = async p => { asks++; return answer({ op: () => asks === 1 ? ['WAIT'] : ['CLICK', opt.ref] })(p) }
+    const { result } = await run(task({ inputs: { school: { value: 'Example', purpose: 'school' } }, budgets: { maxSteps: 20, maxJevRequests: 6, timeoutMs: 10000, [limit]: 2 } }), f, ask)
+    assert.equal(result.status, 'blocked')
+    assert.equal(result.reason, limit === 'maxSteps' ? 'step_limit' : 'jev_request_limit')
+    assert.equal(asks, 2); assert.equal(result.metrics.jevRequests, 2); assert.equal(result.metrics.steps, 2)
+    assert.ok(reads >= (delayedCommit ? 4 : 2)); assert.equal(result.handoffs.length, 0)
+    assert.deepEqual(f.s.executed.map(e => e.op), ['type', 'click'])
+    if (delayedCommit) {
+      assert.equal(result.pendingSelections, undefined)
+      assert.deepEqual(result.committedSelections, [{ documentId: 'd1', ref: field.ref, valueId: 'school', selectedOption: opt.name }])
+    } else {
+      assert.equal(result.pendingSelections[0].valueId, 'school')
+      assert.equal(result.pendingSelections[0].selectedOption, opt.name)
+      assert.equal(result.pendingSelections[0].missingEvidence, 'independent_selection_commit')
+      assert.equal(result.committedSelections, undefined)
+    }
+  })
+}
