@@ -72,8 +72,20 @@ test('a fresh explicit input revision replaces the feedback baseline', () => {
 })
 
 test('navigation before input validation retains the transaction; after pick leaves confirmation to selection', () => {
-  const { manager, p, history } = start(); p.documentId = 'next'; manager.observe(p, history)
+  const { manager, p, history, receipt } = start(); manager.begin(receipt, 'address'); p.documentId = 'next'; manager.observe(p, history)
   assert.equal(p.inputFeedback[0].cause, 'document_changed_before_validation'); assert.equal(p.inputFeedback[0].evidenceCurrent, false)
   const next = start(); next.manager.picked('d','f'); next.p.documentId='next'; next.manager.observe(next.p, next.history)
   assert.deepEqual(next.p.inputFeedback, [])
 })
+
+for (const change of ['navigation', 'omission']) test(`validated plain input tolerates ${change} and still watches present delayed errors`, () => {
+ const {manager,p,history}=start(); p.elements[0].role='textbox';
+ if(change==='navigation')p.documentId='next';else p.elements=[];
+ manager.observe(p,history);assert.deepEqual(p.inputFeedback,[]);assert.equal(history[0].postcondition,'met');
+ p.documentId='d';p.elements=[{ref:'f',fieldFeedback:facts({ariaInvalid:{raw:'true',invalid:true}})}];
+ manager.observe(p,history);assert.equal(p.inputFeedback[0].status,'input_rejected');
+});
+test('owner missing before first settled input observation remains unresolved',()=>{
+ const {manager,p,receipt}=start();manager.begin(receipt,'address');p.elements=[];manager.observe(p,[]);
+ assert.equal(p.inputFeedback[0].cause,'owner_not_observed');
+});

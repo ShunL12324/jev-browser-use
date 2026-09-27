@@ -21,7 +21,7 @@ export class InputFeedback {
   check(r, current) {
     if (r.status !== 'observing') return // terminal obligation requires a new input transaction
     if (!current || !current.connected || current.ownerRef !== r.ref || current.rootId !== r.before.rootId) {
-      if (r.phase === 'typing') Object.assign(r, { status: 'input_feedback_unresolved', cause: 'owner_identity_unverified', current })
+      if (r.phase === 'typing' && !r.validated) Object.assign(r, { status: 'input_feedback_unresolved', cause: 'owner_identity_unverified', current })
       return
     }
     if (rejected(current)) {
@@ -34,17 +34,18 @@ export class InputFeedback {
     const baseline = new Set(visible(r.before).map(key))
     const changed = visible(current).filter(d => !baseline.has(key(d)))
     if (changed.length) Object.assign(r, { status: 'input_feedback_unresolved', cause: 'new_associated_description', current, changed })
+    else r.validated = true // settled post-input observation; absence later is not a new error
   }
   observe(page, history) {
     for (const r of this.records.values()) {
       if (r.documentId !== page.documentId) {
-        if (r.phase === 'typing' && r.status === 'observing') Object.assign(r, { status: 'input_feedback_unresolved', cause: 'document_changed_before_validation', current: null })
+        if (r.phase === 'typing' && !r.validated && r.status === 'observing') Object.assign(r, { status: 'input_feedback_unresolved', cause: 'document_changed_before_validation', current: null })
         r.evidenceCurrent = false
         continue
       }
       const field = page.elements.find(e => e.ref === r.ref)
       if (field?.fieldFeedback) this.check(r, field.fieldFeedback)
-      else if (r.phase === 'typing' && r.status === 'observing') Object.assign(r, { status: 'input_feedback_unresolved', cause: 'owner_not_observed', current: null })
+      else if (r.phase === 'typing' && !r.validated && r.status === 'observing') Object.assign(r, { status: 'input_feedback_unresolved', cause: 'owner_not_observed', current: null })
       if (r.status !== 'observing') {
         r.evidenceCurrent = !!field?.fieldFeedback && JSON.stringify(field.fieldFeedback) === JSON.stringify(r.current)
       }

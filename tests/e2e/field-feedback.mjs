@@ -4,10 +4,11 @@ import { once } from 'node:events'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { launchIsolated } from '../../scripts/jev/task-browser.mjs'
 import { InputFeedback } from '../../packages/bridge/src/agent/input-feedback.mjs'
-const kinds = ['native-pattern','native-length','aria-invalid','described','errormessage','old-help','new-help','reveal','hidden','duplicate','wrong-field','wrong-root','shadow','slot-hidden','replace','shared','clear','not-sent','redirect','long-text','long-attribute']
+const kinds = ['native-pattern','native-length','aria-invalid','described','errormessage','old-help','new-help','reveal','hidden','duplicate','wrong-field','wrong-root','shadow','slot-hidden','replace','shared','clear','not-sent','redirect','long-text','long-attribute','clip-self','clip-parent','clip-path-self','clip-path-parent','clip-shadow','clip-slot','clip-partial','plain-navigation','plain-omission']
 const fixture = kind => `<!doctype html><style>input,textarea{padding:12px}#host{margin:20px}</style><div id=host></div><script>
-const kind=${JSON.stringify(kind)},host=document.querySelector('#host'),root=kind==='shadow'?host.attachShadow({mode:'open'}):host;
+const kind=${JSON.stringify(kind)},host=document.querySelector('#host'),root=['shadow','clip-shadow'].includes(kind)?host.attachShadow({mode:'open'}):host;
 root.innerHTML='<input aria-label="Address" role="combobox" id=f><div id=messages></div>';
+if(kind.startsWith('plain-'))root.querySelector('#f').removeAttribute('role');
 const f=root.querySelector('#f'),messages=root.querySelector('#messages');window.f=f;window.inputs=0;window.invalids=0;f.addEventListener('invalid',()=>window.invalids++);
 const source=kind==='errormessage'?'aria-errormessage':'aria-describedby';f.setAttribute(source,'hint');
 const add=()=>{const p=document.createElement('p');p.id='hint';p.textContent=kind==='new-help'?'5 characters entered':'Input feedback';messages.append(p);return p;};
@@ -28,6 +29,7 @@ f.addEventListener('input',()=>{window.inputs++;
  if(kind==='slot-hidden'){const h=document.createElement('div');root.append(h);h.attachShadow({mode:'open'}).innerHTML='<slot name=feedback style="display:none"></slot>';const p=add();p.slot='feedback';h.append(p);}
  if(kind==='replace'){root.querySelector('#hint').remove();add();}
  if(kind==='long-text'){const p=add();p.textContent='x'.repeat(1000);const b=document.createElement('span');b.textContent='remaining text';p.append(b);}
+ if(kind.startsWith('clip-')){const p=add();let target=p;if(kind.endsWith('parent'))target=messages;if(kind==='clip-shadow')target=host;if(kind==='clip-slot'){const h=document.createElement('div');root.append(h);h.attachShadow({mode:'open'}).innerHTML='<slot name=feedback style="clip-path:inset(100%)"></slot>';p.slot='feedback';h.append(p);target=null;}if(target)target.style.cssText=kind==='clip-self'||kind==='clip-parent'?'position:absolute;clip:rect(0px,0px,0px,0px)':kind==='clip-partial'?'clip-path:inset(0 50% 0 0)':'clip-path:inset(100%)';}
  if(kind==='clear')root.querySelector('#hint').textContent='Changed feedback';
 });window.ready=true;</script>`
 const server=createServer((req,res)=>{res.setHeader('Content-Type','text/html');res.end(fixture(new URL(req.url,'http://x').searchParams.get('kind')??'described'))}).listen(0,'127.0.0.1');await once(server,'listening')
@@ -60,6 +62,11 @@ try {
   if(kind==='wrong-root')assert.equal(observed.fieldFeedback.descriptions[0].status,'missing')
   if(kind==='slot-hidden')assert.equal(observed.fieldFeedback.descriptions[0].status,'hidden')
   if(kind==='redirect'){assert.notEqual(result.inputReceipt.ref,field.ref);assert.equal(observed.name,'Actual')}
+  if(kind.startsWith('clip-'))assert.equal(observed.fieldFeedback.descriptions[0].status,'hidden',kind)
+  if(kind.startsWith('plain-')){
+   if(kind==='plain-navigation')await fixturePage.goto(url+'&next=1');else await fixturePage.evaluate(()=>window.f.remove());
+   const next=await browser.call('s1',{tabId,action:'agent_observe'});m.observe(next,[]);assert.deepEqual(next.inputFeedback,[],kind);
+  }
   let cleared
   if(kind==='clear'){
    await fixturePage.evaluate(()=>window.f.parentElement.querySelector('#hint').remove())

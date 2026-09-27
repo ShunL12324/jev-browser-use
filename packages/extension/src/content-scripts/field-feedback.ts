@@ -10,6 +10,9 @@ function visible(el: Element) {
   if (!rect.width || !rect.height) return false
   for (let n: Element | null = el; n; n = parent(n)) {
     const s = getComputedStyle(n)
+    // Layout rectangles do not prove which glyphs survive arbitrary CSS clips.
+    // Exclude even partial clips rather than claim complete visible feedback.
+    if (s.clipPath !== 'none' || s.clip !== 'auto') return false
     if (n.matches('[hidden],[aria-hidden="true"]') || s.display === 'none' || s.visibility !== 'visible' || Number(s.opacity) === 0 || s.contentVisibility === 'hidden') return false
     if (n !== el && /(hidden|clip|scroll|auto)/.test(s.overflowX + s.overflowY)) {
       const r = n.getBoundingClientRect()
