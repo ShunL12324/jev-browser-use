@@ -2,19 +2,19 @@
 // structured handoffs back to the calling LLM.
 import { z } from 'zod'
 import { RunError } from '../jev/core.mjs'
-import { startTask, continueTask, statusTask, cancelTask } from './task.mjs'
+import { startTask, continueTask, statusTask, cancelTask, closeSession } from './task.mjs'
 
 const description = 'Run a natural-language browser task with Jev deciding each step inside the service. start → returns done/blocked/needs_confirmation/error, running (poll with status), or needs_input with a handoff (text, choose, confirm, question) that you answer via continue {taskId, handoffId, answer}. allowedOrigins is required; the task never leaves them without a confirm handoff. inputs: known values ({value|secretRef, purpose}) applied to matching fields without declared targets. Results report the model\'s completion claim, not independent verification.'
 export function registerTask(server, { host }) {
   server.registerTool('browser_task', { description, inputSchema: {
-    action: z.enum(['start', 'continue', 'status', 'cancel']), taskId: z.string().optional(), handoffId: z.string().optional(), answer: z.record(z.unknown()).optional(),
-    goal: z.string().optional(), startUrl: z.string().optional(), allowedOrigins: z.array(z.string()).optional(), inputs: z.record(z.unknown()).optional(), files: z.record(z.unknown()).optional(),
+    action: z.enum(['start', 'continue', 'status', 'cancel', 'close_session']), taskId: z.string().optional(), sessionId: z.string().optional(), handoffId: z.string().optional(), answer: z.record(z.unknown()).optional(),
+    goal: z.string().optional(), startUrl: z.string().optional(), allowedOrigins: z.array(z.string()).optional(), kind: z.enum(['navigate', 'collect']).optional(), collect: z.object({ count: z.number().int(), item: z.string() }).optional(), inputs: z.record(z.unknown()).optional(), files: z.record(z.unknown()).optional(),
     irreversible: z.enum(['confirm', 'deny', 'none']).optional(), keepTabs: z.enum(['none', 'final', 'all']).optional(), llm: z.enum(['handoff', 'none']).optional(), budgets: z.record(z.unknown()).optional(), waitMs: z.number().int().min(0).max(110000).optional()
   } }, async input => {
     try {
-      const { action, waitMs, taskId, handoffId, answer, ...start } = input
-      const result = action === 'start' ? await startTask(start, { host, waitMs }) : action === 'continue' ? await continueTask({ taskId, handoffId, answer }, { waitMs })
-        : action === 'status' ? await statusTask({ taskId }, { waitMs }) : await cancelTask({ taskId })
+      const { action, waitMs, taskId, sessionId, handoffId, answer, ...start } = input
+      const result = action === 'start' ? await startTask({ ...start, sessionId }, { host, waitMs }) : action === 'continue' ? await continueTask({ taskId, handoffId, answer }, { waitMs })
+        : action === 'status' ? await statusTask({ taskId }, { waitMs }) : action === 'cancel' ? await cancelTask({ taskId }) : await closeSession({ sessionId }, { host })
       return { content: [{ type: 'text', text: JSON.stringify(result) }] }
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: JSON.stringify({ code: e.code ?? 'TASK_ERROR', message: e instanceof RunError ? e.message : 'browser_task failed.' }) }] }
@@ -33,4 +33,3 @@ export function registerTaskAdapter(server, { host }) {
     } catch (e) { return { isError: true, content: [{ type: 'text', text: JSON.stringify({ code: e.code ?? 'TASK_ERROR', message: e.message }) }] } }
   })
 }
-

@@ -14,10 +14,11 @@ export const PRODUCT_LEDGER = '/tmp/jev-product/live-budget.json'
 export const PRODUCT_LIMIT = 10000
 const input = z.union([z.object({ value: z.string().max(4000), purpose: z.string().min(1).max(300) }).strict(), z.object({ secretRef: z.string().min(1).max(100), purpose: z.string().min(1).max(300) }).strict()])
 export const startSchema = z.object({
-  goal: z.string().min(1).max(4000), startUrl: z.string().url(), allowedOrigins: z.array(z.string().url()).min(1).max(20),
+  goal: z.string().min(1).max(4000), startUrl: z.string().url().optional(), sessionId: z.string().optional(), allowedOrigins: z.array(z.string().url()).min(1).max(20),
+  kind: z.enum(['navigate', 'collect']).default('navigate'), collect: z.object({ count: z.number().int().min(1).max(100), item: z.string().min(1).max(500) }).strict().optional(),
   inputs: z.record(input).default({}), files: z.record(z.object({ fileId: z.string().min(1).max(100), purpose: z.string().min(1).max(300) }).strict()).default({}),
   irreversible: z.enum(['confirm', 'deny', 'none']).default('confirm'), keepTabs: z.enum(['none', 'final', 'all']).default('final'), llm: z.enum(['handoff', 'none']).default('handoff'),
-  budgets: z.object({ timeoutMs: z.number().int().min(1000).max(1800000).default(300000), maxSteps: z.number().int().min(1).max(300).default(120), maxJevRequests: z.number().int().min(1).max(300).default(80) }).strict().default({})
+  budgets: z.object({ timeoutMs: z.number().int().min(1000).max(1800000).default(300000), maxSteps: z.number().int().min(1).max(300).default(120), maxJevRequests: z.number().int().min(1).max(300).default(80) }).strict().default({ timeoutMs: 300000, maxSteps: 120, maxJevRequests: 80 })
 }).strict()
 // Host secret manifest: {ref: {value, origins:[...]}}. Plaintext never enters
 // Jev state, handoffs, results or traces.
@@ -28,9 +29,10 @@ function loadSecrets() {
 export function prepareTask(raw) {
   const parsed = startSchema.safeParse(raw)
   if (!parsed.success) throw new RunError('TASK', parsed.error.message)
-  const task = parsed.data, url = new URL(task.startUrl)
+  const task = parsed.data, url = task.startUrl ? new URL(task.startUrl) : null
+  if (task.kind === 'collect' && !task.collect) throw new RunError('TASK', 'collect kind requires count and item description.')
   for (const origin of task.allowedOrigins) if (new URL(origin).origin !== origin) throw new RunError('TASK', 'allowedOrigins must be canonical origins.')
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !task.allowedOrigins.includes(url.origin)) throw new RunError('TASK', 'startUrl must be inside allowedOrigins.')
+  if (url && (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !task.allowedOrigins.includes(url.origin))) throw new RunError('TASK', 'startUrl must be inside allowedOrigins.')
   const secrets = loadSecrets(), inputs = {}
   for (const [id, v] of Object.entries(task.inputs)) {
     if (v.secretRef) {
@@ -43,10 +45,10 @@ export function prepareTask(raw) {
   return { ...task, inputs }
 }
 
-const sessions = new Map()
-// Final tab of this session's previous task; closed when the next task starts
-// (keepTabs:'final' leaves it open only for reading the result).
-let previousFinalTab = null
+const sessions = new Map(), taskSessions = new Map()
+// Old default keepTabs:'final' closes the previous independent task's tab
+// after a new one opens. An explicit session resume reuses its tab instead.
+let previousFinalTab = null, previousFinalSessionId = null
 // Each call returns at the next handoff, at termination, or after waitMs.
 function wait(session, waitMs) {
   return new Promise(resolve => {
@@ -55,26 +57,43 @@ function wait(session, waitMs) {
     if (session.result || session.pending) session.wake()
   })
 }
-const view = s => s.result ? { taskId: s.id, ...s.result, tracePath: s.tracePath } : s.pending ? { status: 'needs_input', taskId: s.id, handoff: s.pending.request } : { status: 'running', taskId: s.id }
+const view = s => s.result ? { taskId: s.id, sessionId: s.browserSession.id, ...s.result, tracePath: s.tracePath } : s.pending ? { status: 'needs_input', taskId: s.id, sessionId: s.browserSession.id, handoff: s.pending.request } : { status: 'running', taskId: s.id, sessionId: s.browserSession.id }
 
-export async function startTask(raw, { host, ask = askJev, ledgerPath = process.env.JEV_PRODUCT_LEDGER ?? PRODUCT_LEDGER, traceDirectory = process.env.JEV_TASK_TRACE_DIR ?? '/tmp/jev-product/traces', waitMs = 50000, handoff } = {}) {
-  const task = prepareTask(raw)
+export async function startTask(raw, { host, ask = askJev, ledgerPath = process.env.JEV_PRODUCT_LEDGER ?? PRODUCT_LEDGER, traceDirectory = process.env.JEV_TASK_TRACE_DIR ?? '/tmp/jev-product/traces', waitMs = 50000, sessionIdleMs = 600000, handoff } = {}) {
+  const existing = raw.sessionId ? taskSessions.get(raw.sessionId) : null
+  if (raw.sessionId && !existing) throw new RunError('NO_SESSION', 'Unknown or closed sessionId.')
+  if (existing?.busy) throw new RunError('SESSION_BUSY', 'This session already has a running task.')
+  if (!existing && !raw.startUrl) throw new RunError('TASK', 'A new session requires startUrl.')
+  const task = prepareTask({ ...raw, allowedOrigins: raw.allowedOrigins ?? existing?.allowedOrigins })
+  const browserSession = existing ?? { id: `s_${randomUUID()}`, allowedOrigins: task.allowedOrigins, record: {}, busy: false }
   const authorized = Object.values(task.inputs).some(i => i.fileId) ? loadAuthorizedFiles() : {}
   for (const i of Object.values(task.inputs)) if (i.fileId) authorizeFile(i.fileId, authorized)
   requireBudget(ledgerPath, task.budgets.maxJevRequests, PRODUCT_LIMIT)
   mkdirSync(traceDirectory, { recursive: true, mode: 0o700 })
   const id = `t_${randomUUID()}`, tracePath = join(traceDirectory, `${id}.jsonl`)
-  const secretValues = Object.values(task.inputs).filter(i => i.secret).map(i => i.value)
+  const secretValues = browserSession.record.secrets ??= []
+  for (const value of Object.values(task.inputs).filter(i => i.secret).map(i => i.value)) if (!secretValues.includes(value)) secretValues.push(value)
   const redact = text => secretValues.reduce((t, v) => t.split(v).join('‹secret›'), text)
   const emit = event => {
     appendFileSync(tracePath, redact(JSON.stringify({ taskId: id, at: new Date().toISOString(), ...event })) + '\n', { mode: 0o600 })
     if (event.event === 'tab' && previous !== null && event.tabId !== previous) host.invoke('tabs', { action: 'close', tabId: previous }).catch(() => {})
   }
-  // The previous task's final tab is closed only after this task's tab
-  // exists, so the agent window never becomes empty (and never closes).
-  const previous = task.keepTabs !== 'all' ? previousFinalTab : null
-  if (previous !== null) previousFinalTab = null
-  const controller = new AbortController(), session = { id, tracePath, controller, pending: null, result: null, wake: null }
+  // Keep the previous task's final tab until a new tab exists. Resuming that
+  // session never closes it.
+  const previous = !existing && task.keepTabs !== 'all' ? previousFinalTab : null
+  if (previous !== null) {
+    previousFinalTab = null
+    if (previousFinalSessionId) {
+      const old = taskSessions.get(previousFinalSessionId)
+      if (old?.idleTimer) clearTimeout(old.idleTimer)
+      taskSessions.delete(previousFinalSessionId)
+    }
+    previousFinalSessionId = null
+  }
+  const controller = new AbortController(), session = { id, tracePath, controller, pending: null, result: null, wake: null, browserSession }
+  if (browserSession.idleTimer) { clearTimeout(browserSession.idleTimer); browserSession.idleTimer = null }
+  browserSession.busy = true; browserSession.allowedOrigins = task.allowedOrigins
+  taskSessions.set(browserSession.id, browserSession)
   sessions.set(id, session)
   emit({ event: 'start', sourceSha: process.env.JEV_SOURCE_SHA ?? 'unknown', task: { ...task, inputs: Object.fromEntries(Object.entries(task.inputs).map(([k, v]) => [k, v.secret ? { ...v, value: '‹secret›' } : v])) } })
   const call = async (name, args, signal) => {
@@ -111,11 +130,20 @@ export async function startTask(raw, { host, ask = askJev, ledgerPath = process.
   // Warm DNS/TLS while the tab opens: an unauthenticated GET, not a Jev call.
   if (ask === askJev) fetch(process.env.TYPESAFE_BASE_URL ?? 'https://api.typesafe.ai', { signal: AbortSignal.timeout(10000) }).catch(() => {})
   const files = fileId => authorizeFile(fileId, authorized)
-  runTask(task, { call, ask: countedAsk, handoff: toCaller, emit, signal, files }).then(async result => {
+  runTask(task, { call, ask: countedAsk, handoff: toCaller, emit, signal, files, record: browserSession.record }).then(async result => {
     // Task tabs do not pile up: keep only the final one (or none / all).
     const close = task.keepTabs === 'all' ? [] : (result.taskTabs ?? []).filter(id => task.keepTabs === 'none' || id !== result.tabId)
     for (const id of close) await host.invoke('tabs', { action: 'close', tabId: id }).catch(() => {})
-    if (task.keepTabs === 'final' && Number.isInteger(result.tabId)) previousFinalTab = result.tabId
+    for (const id of close) browserSession.record.taskTabs?.delete(id)
+    browserSession.record.tabId = task.keepTabs === 'none' ? null : result.tabId
+    if (task.keepTabs === 'final' && Number.isInteger(result.tabId)) { previousFinalTab = result.tabId; previousFinalSessionId = browserSession.id }
+    if (task.keepTabs === 'none') taskSessions.delete(browserSession.id)
+    browserSession.busy = false
+    if (taskSessions.get(browserSession.id) === browserSession) {
+      browserSession.idleTimer = setTimeout(() => {
+        if (!browserSession.busy && taskSessions.get(browserSession.id) === browserSession) closeSession({ sessionId: browserSession.id }, { host }).catch(() => {})
+      }, sessionIdleMs).unref()
+    }
     session.result = result; emit({ event: 'terminal', ...result, closedTabs: close }); session.wake?.()
     setTimeout(() => sessions.delete(id), 600000).unref()
   })
@@ -139,4 +167,15 @@ export function cancelTask({ taskId }) {
   if (!s) throw new RunError('NO_TASK', 'Unknown or expired taskId.')
   s.controller.abort(); s.pending?.reject(new RunError('CANCELLED', 'Task cancelled.')); s.pending = null
   return wait(s, 5000)
+}
+export async function closeSession({ sessionId }, { host } = {}) {
+  const s = taskSessions.get(sessionId)
+  if (!s) throw new RunError('NO_SESSION', 'Unknown or closed sessionId.')
+  if (s.busy) throw new RunError('SESSION_BUSY', 'Cancel the running task before closing its session.')
+  if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null }
+  const tabs = new Set([...(s.record.taskTabs?.keys() ?? []), s.record.tabId].filter(Number.isInteger))
+  for (const tabId of tabs) await host.invoke('tabs', { action: 'close', tabId }, tabId).catch(() => {})
+  if (previousFinalSessionId === sessionId) { previousFinalSessionId = null; previousFinalTab = null }
+  taskSessions.delete(sessionId)
+  return { status: 'closed', sessionId }
 }

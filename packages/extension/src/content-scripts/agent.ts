@@ -31,7 +31,7 @@ function guard(el: Element, active = activeModals()) {
 // Text of the list item / row / card holding a control, when it adds to the
 // control's own name (e.g. which reservation a "Cancel" button belongs to).
 function itemText(el: Element, name: string) {
-  const item = el.parentElement?.closest('li,tr,article,[role="row"],[role="listitem"],[role="article"]') as HTMLElement | null
+  const item = el.parentElement?.closest('li,tr,article,section,[role="row"],[role="listitem"],[role="article"]') as HTMLElement | null
   const text = item?.innerText?.replace(/\s+/g, ' ').trim()
   return text && text !== name && text.length > name.length ? text.slice(0, 120) : null
 }
@@ -51,6 +51,26 @@ function visibleText(limit = 6000) {
   }
   if (document.body) visit(document.body)
   return out.join('\n').slice(0, limit)
+}
+const shown = (el: Element) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' }
+// Read the active detail surface, never the surrounding feed. Semantic HTML
+// and ARIA identify the surface; no site-specific structure is assumed.
+function detail() {
+  const dialogs = Array.from(document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"]')).filter(shown)
+  const articles = Array.from(document.querySelectorAll('article,[role="article"]')).filter(shown)
+  const root = (dialogs.at(-1) || (articles.length === 1 ? articles[0] : null)) as HTMLElement | null
+  if (!root) return null
+  const heading = root.querySelector('h1,h2,h3,[role="heading"]') as HTMLElement | null
+  const author = root.querySelector('[rel="author"],[itemprop="author"],[data-author],.author') as HTMLElement | null
+  const date = root.querySelector('time,[itemprop="datePublished"]') as HTMLElement | null
+  const link = root.querySelector('a[rel="canonical"]') as HTMLAnchorElement | null
+  const text = root.innerText?.trim() ?? ''
+  // An unrelated login or promo dialog can cover a post. Do not treat that
+  // overlay as a collected item merely because it has role=dialog.
+  if (dialogs.length && !((text.length >= 20 && (author || date || root.querySelector('article,[role="article"]'))) || text.length >= 240)) return null
+  return { kind: dialogs.length ? 'dialog' : 'page', title: heading?.innerText?.trim() || root.getAttribute('aria-label') || document.title,
+    author: author?.innerText?.trim() || author?.getAttribute('data-author') || '', date: date?.getAttribute('datetime') || date?.innerText?.trim() || '',
+    url: link?.href && link.href !== location.href ? link.href : location.href, text: text.slice(0, 16000) }
 }
 // Elements within one viewport height of the visible area, nearest first,
 // capped; the rest is reported as omitted (reachable by scrolling).
@@ -109,6 +129,7 @@ function observe(limit: number) {
   elements.sort((a, b) => a.top - b.top || a.left - b.left)
   const marker = hash(JSON.stringify([location.href, scrollY, elements.map(e => [e.ref, e.role, e.name, e.value, e.checked, e.expanded, e.disabled])]))
   return { ok: true, agentProtocol: AGENT_PROTOCOL, build: BUILD_ID, documentId, url: location.href, title: document.title, readyState: document.readyState, text: visibleText(),
+    detail: detail(),
     dialogs: recentDialogs(), selectionWitnesses: selectionWitnesses(),
     scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight }, elements, omitted: snapshot.coverage.matched - picked.length, marker }
 }
@@ -208,6 +229,15 @@ function run(q: Req): { ok: true; execution: string; [k: string]: unknown } {
       case 'scroll_down': scrollBy(0, Math.round(innerHeight * 0.8)); break
       case 'scroll_up': scrollBy(0, -Math.round(innerHeight * 0.8)); break
       case 'back': history.back(); break
+      case 'close_dialog': {
+        const dialogs = Array.from(document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"]')).filter(shown)
+        const dialog = dialogs.at(-1) as HTMLElement | undefined
+        if (!dialog) return reject('NO_DIALOG')
+        const close = Array.from(dialog.querySelectorAll('button,[role="button"]')).find(node => /^(close|dismiss|cancel|back|×|✕|x|关闭|返回)$/i.test((node.getAttribute('aria-label') || (node as HTMLElement).innerText || '').trim())) as HTMLElement | undefined
+        if (close) press(close)
+        else { key(dialog, 'Escape'); if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close() }
+        break
+      }
       case 'wait': break
       default: return reject('UNSUPPORTED')
     }
